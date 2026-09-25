@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BHAAV · Expression & Sign Reader</title>
+<meta name="description" content="Reads facial emotions, eye gestures, head gestures and hand signs through the camera, entirely on-device, and speaks for people who cannot.">
+<meta name="theme-color" content="#0a0e13">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='30' fill='%230a0e13'/><path d='M14 32c8-12 28-12 36 0-8 12-28 12-36 0z' fill='none' stroke='%232dd4bf' stroke-width='4'/><circle cx='32' cy='32' r='6' fill='%23f5b454'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#0a0e13; --panel:#111821; --panel2:#16202b; --line:#233142; --ink:#e6edf3; --dim:#8b9bb0; --faint:#56657a;
+  --teal:#2dd4bf; --amber:#f5b454; --rose:#fb7185; --sky:#60a5fa; --violet:#a78bfa; --lime:#a3e635;
+  --happy:#facc15; --sad:#60a5fa; --angry:#f87171; --surprised:#f472b6; --fear:#a78bfa; --disgust:#84cc16; --contempt:#fb923c; --confused:#22d3ee; --neutral:#94a3b8;
+  --r:14px; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;font-size:15px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e141b,#0a0e13)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.14em;font-size:18px}
+.logo svg{width:30px;height:30px}
+.logo small{display:block;font-weight:400;letter-spacing:.02em;font-size:12px;color:var(--dim)}
+header .spacer{flex:1}
+.pill{font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:99px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.pill.ok{color:var(--teal);border-color:#1f5f58}
+.pill.warn{color:var(--amber);border-color:#6b5222}
+main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr);gap:16px;padding:16px 20px 28px;max-width:1600px;margin:0 auto}
+@media (max-width:1000px){main{grid-template-columns:1fr;padding:12px 16px 24px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600;display:flex;align-items:center;gap:8px}
+.card h3 .grow{flex:1}
+
+/* ---------- stage ---------- */
+.stage{position:relative;width:100%;aspect-ratio:16/9;background:#05080b;border-radius:var(--r);overflow:hidden;border:1px solid var(--line)}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage.mirror video,.stage.mirror #overlay{transform:scaleX(-1)}
+.stage #photo{display:none}
+.stage.photo #photo{display:block}
+.stage.photo video{display:none}
+.stage .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px}
+.stage .empty p{color:var(--dim);max-width:460px;margin:0;line-height:1.5}
+.stage .hud{position:absolute;left:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none}
+.hud span{font-family:var(--mono);font-size:12px;background:rgba(5,8,11,.72);border:1px solid rgba(255,255,255,.08);padding:4px 9px;border-radius:8px}
+.stage .bigemo{position:absolute;right:12px;top:12px;background:rgba(5,8,11,.75);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 12px;display:none;align-items:center;gap:10px;pointer-events:none}
+.stage .bigemo b{font-size:30px;line-height:1}
+.stage .bigemo div{font-size:13px;color:var(--dim)} .stage .bigemo div strong{display:block;color:var(--ink);font-size:16px}
+.stage .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%) translateY(20px);opacity:0;transition:.25s;background:rgba(10,14,19,.9);border:1px solid var(--teal);color:var(--ink);padding:8px 16px;border-radius:99px;font-weight:600;pointer-events:none;white-space:nowrap}
+.stage .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.stage .calib{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,8,11,.45);font-size:20px;font-weight:600;text-align:center;pointer-events:none}
+.stage .calib.show{display:flex}
+
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;transition:.15s;display:inline-flex;align-items:center;gap:7px}
+.btn:hover{border-color:#3b4d63;background:#1b2734}
+.btn.primary{background:var(--teal);color:#032421;border-color:var(--teal);font-weight:600}
+.btn.primary:hover{background:#5eead4}
+.btn.danger{background:#3b1219;border-color:#7f1d2d;color:#fecdd3}
+.btn.on{border-color:var(--teal);color:var(--teal)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:5px 10px;font-size:13px}
+select.btn{padding:7px 10px}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);user-select:none;cursor:pointer}
+.toggle input{accent-color:var(--teal)}
+
+/* ---------- speak bar ---------- */
+.speak{margin-top:14px}
+.sentence{min-height:62px;background:#070b10;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:20px}
+.sentence .word{background:#0f2a27;border:1px solid #1f5f58;padding:4px 10px;border-radius:9px;animation:pop .3s}
+.sentence .ph{color:var(--faint);font-size:15px}
+@keyframes pop{from{transform:scale(.7);opacity:0}}
+.phrases{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px;margin-top:10px}
+.phrases button{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:14px;text-align:center}
+.phrases button:hover{border-color:var(--teal)}
+.phrases button.sos{background:#3b1219;border-color:#be123c;color:#fecdd3;font-weight:700}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.between{justify-content:space-between}
+
+/* ---------- right column ---------- */
+.side{display:flex;flex-direction:column;gap:14px;min-width:0}
+.now{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.now .tile{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;min-width:0}
+.tile .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.tile .v{font-size:17px;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .s{font-size:12px;color:var(--dim);font-family:var(--mono);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px -4px 12px;padding:0 4px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:8px 10px;color:var(--dim);font-weight:500;white-space:nowrap}
+.tabs button.act{color:var(--ink);border-bottom-color:var(--teal)}
+.pane{display:none}.pane.act{display:block}
+
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:grid;grid-template-columns:118px 1fr 44px;gap:8px;align-items:center;font-size:14px}
+.bar .track{height:10px;background:#0a1017;border-radius:6px;overflow:hidden;border:1px solid #1a2532}
+.bar .fill{height:100%;width:0;border-radius:6px;transition:width .12s linear}
+.bar .pct{font-family:var(--mono);font-size:12px;color:var(--dim);text-align:right}
+.bar.top .lbl{font-weight:700}
+.sub{font-size:12px;color:var(--faint);line-height:1.5;margin:10px 0 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.grid2{grid-template-columns:1fr}}
+.gauge{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
+.gauge .big{font-size:30px;font-weight:700;font-family:var(--mono)}
+.gauge .lvl{font-size:13px;font-weight:600}
+.minibars{margin-top:8px;display:flex;flex-direction:column;gap:5px}
+.minibars .bar{grid-template-columns:104px 1fr 36px;font-size:12px}
+.minibars .track{height:6px}
+canvas.timeline{width:100%;height:110px;display:block;background:#070b10;border-radius:10px;border:1px solid var(--line)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--dim);margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;vertical-align:0}
+.circ{width:100%;max-width:230px;aspect-ratio:1;display:block;margin:0 auto}
+
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:6px}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:13px;position:relative;overflow:hidden;transition:border-color .15s}
+.chip .m{position:absolute;left:0;bottom:0;height:3px;background:var(--teal);width:0;transition:width .12s}
+.chip.on{border-color:var(--teal);color:#ccfbf1;background:#0f2a27}
+.eyesvg{width:100%;max-width:340px;display:block;margin:0 auto}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.stats div{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px}
+.stats b{display:block;font-family:var(--mono);font-size:18px}
+.stats span{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+.feed{max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.feed div{display:flex;gap:8px;padding:5px 8px;background:var(--panel2);border-radius:8px;border-left:3px solid var(--line)}
+.feed time{font-family:var(--mono);color:var(--faint);font-size:11px;padding-top:2px}
+.feed .eye{border-left-color:var(--sky)} .feed .head{border-left-color:var(--violet)} .feed .hand{border-left-color:var(--amber)} .feed .emo{border-left-color:var(--happy)} .feed .say{border-left-color:var(--teal)}
+.hands{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:120px}
+.hcard .g{font-size:26px;font-weight:700;margin:4px 0}
+.hcard .meta{font-size:12px;color:var(--dim);font-family:var(--mono)}
+.fingers{display:flex;gap:5px;margin-top:8px}
+.fingers span{flex:1;text-align:center;font-size:10px;color:var(--faint);padding:4px 0;border-radius:6px;background:#0a1017;border:1px solid #1a2532}
+.fingers span.x{background:#3a2a0c;border-color:var(--amber);color:var(--amber)}
+.train{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+.train input[type=text]{background:#070b10;border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0;flex:1}
+.custom{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.custom div{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-size:13px}
+.custom div b{flex:1}
+table.map{width:100%;border-collapse:collapse;font-size:13px}
+table.map td{padding:4px 4px;border-bottom:1px solid #18222e}
+table.map td:first-child{color:var(--dim);white-space:nowrap}
+table.map input{width:100%;background:#070b10;border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.set{display:flex;flex-direction:column;gap:10px}
+.set label{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+.set input[type=range]{flex:1;max-width:200px;accent-color:var(--teal)}
+footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);font-size:12px;line-height:1.6}
+.spin{width:16px;height:16px;border:2px solid #2dd4bf44;border-top-color:var(--teal);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 64 64"><path d="M6 32c10-15 42-15 52 0-10 15-42 15-52 0z" fill="none" stroke="#2dd4bf" stroke-width="3.5"/><circle cx="32" cy="32" r="9" fill="none" stroke="#f5b454" stroke-width="3.5"/><circle cx="32" cy="32" r="3.5" fill="#f5b454"/></svg>
+    <div>BHAAV<small>Expression · Eye · Sign reader</small></div>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill" id="modelPill">models: not loaded</span>
+  <span class="pill ok" title="Video never leaves this device">🔒 on-device</span>
+</header>
+
+<main>
+  <section>
+    <div class="stage mirror" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="photo"></canvas>
+      <canvas id="overlay"></canvas>
+      <div class="hud" id="hud"></div>
+      <div class="bigemo" id="bigemo"><b id="bigemoIcon">😐</b><div><strong id="bigemoName">Neutral</strong><span id="bigemoConf"></span></div></div>
+      <div class="calib" id="calibMsg">Hold a relaxed, neutral face<br>and look at the screen…</div>
+      <div class="toast" id="toast"></div>
+      <div class="empty" id="empty">
+        <svg width="72" height="72" viewBox="0 0 64 64"><path d="M6 32c10-15 42-15 52 0-10 15-42 15-52 0z" fill="none" stroke="#2dd4bf" stroke-width="2.5"/><circle cx="32" cy="32" r="9" fill="none" stroke="#f5b454" stroke-width="2.5"/></svg>
+        <p>Turn on the camera to read <b>facial emotions</b>, <b>eye gestures</b>, <b>head nods</b> and <b>hand signs</b>. Signs can be turned into spoken sentences for someone who can't speak.</p>
+        <div class="row" style="justify-content:center">
+          <button class="btn primary" id="startBtn">▶ Start camera</button>
+          <label class="btn">🖼 Analyze a photo<input type="file" id="photoIn" accept="image/*" hidden></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="btn primary" id="camBtn" style="display:none">■ Stop</button>
+      <select class="btn" id="camSel" title="Camera" style="display:none"></select>
+      <button class="btn" id="calibBtn" title="Record your neutral face so readings are personal to you">◎ Calibrate neutral</button>
+      <label class="btn" id="photoBtn2" style="display:none">🖼 Photo<input type="file" id="photoIn2" accept="image/*" hidden></label>
+      <span class="spacer" style="flex:1"></span>
+      <label class="toggle"><input type="checkbox" id="optMesh" checked> face mesh</label>
+      <label class="toggle"><input type="checkbox" id="optHands" checked> hand skeleton</label>
+      <label class="toggle"><input type="checkbox" id="optMirror" checked> mirror</label>
+    </div>
+
+    <div class="card speak">
+      <h3>🗣 Speak for me <span class="grow"></span>
+        <label class="toggle"><input type="checkbox" id="optTyping" checked> hand signs type</label>
+        <label class="toggle"><input type="checkbox" id="optEyeCmd" checked> eye/head commands</label>
+      </h3>
+      <div class="sentence" id="sentence"><span class="ph">Hold a hand sign (👍 = Yes, ✊ = I need help, ✌️ = Thank you…), nod or shake your head, or tap a phrase below.</span></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" id="speakBtn">🔊 Speak</button>
+        <button class="btn" id="backBtn">⌫ Undo</button>
+        <button class="btn" id="clearBtn">✕ Clear</button>
+        <label class="toggle"><input type="checkbox" id="optAuto"> speak each word</label>
+        <span style="flex:1"></span>
+        <span class="pill" id="holdPill">hold 0.9 s to type</span>
+      </div>
+      <div class="phrases" id="phrases"></div>
+    </div>
+  </section>
+
+  <section class="side">
+    <div class="card">
+      <h3>Right now</h3>
+      <div class="now">
+        <div class="tile"><div class="k">Emotion</div><div class="v" id="nEmo">—</div><div class="s" id="nEmoS"></div></div>
+        <div class="tile"><div class="k">Eyes</div><div class="v" id="nEye">—</div><div class="s" id="nEyeS"></div></div>
+        <div class="tile"><div class="k">Head</div><div class="v" id="nHead">—</div><div class="s" id="nHeadS"></div></div>
+        <div class="tile"><div class="k">Hands</div><div class="v" id="nHand">—</div><div class="s" id="nHandS"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs" id="tabs">
+        <button data-p="emo" class="act">Emotions</button>
+        <button data-p="eyes">Eyes</button>
+        <button data-p="face">Face &amp; head</button>
+        <button data-p="hands">Hand signs</button>
+        <button data-p="log">Log</button>
+        <button data-p="set">Settings</button>
+      </div>
+
+      <div class="pane act" id="p-emo">
+        <div class="bars" id="emoBars"></div>
+        <h3 style="margin-top:16px">Last 60 seconds</h3>
+        <canvas class="timeline" id="timeline"></canvas>
+        <div class="legend" id="legend"></div>
+        <div class="grid2" style="margin-top:14px">
+          <div class="gauge">
+            <div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Stress / anxiety signs</div>
+            <div class="row between"><span class="big" id="stressV">–</span><span class="lvl" id="stressL"></span></div>
+            <div class="minibars" id="stressBars"></div>
+          </div>
+          <div class="gauge">
+            <div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Mood map (valence × arousal)</div>
+            <svg class="circ" id="circ" viewBox="-110 -110 220 220"></svg>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="gauge"><div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Tiredness</div><div class="row between"><span class="big" id="drowsyV">–</span><span class="lvl" id="drowsyL"></span></div><div class="sub" id="drowsyS" style="margin-top:4px"></div></div>
+          <div class="gauge"><div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Attention on screen</div><div class="row between"><span class="big" id="attnV">–</span><span class="lvl" id="attnL"></span></div><div class="sub" style="margin-top:4px">share of the last 10 s facing the camera</div></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn sm" id="csvBtn">⬇ Export session CSV</button><span class="sub" id="sessionSum" style="margin:0"></span></div>
+        <p class="sub">Emotion readings come from 52 facial-muscle movements (brows, eyelids, cheeks, lips, jaw). They describe what the face is showing, not what a person feels inside, and they can't diagnose anxiety or any other condition. Calibrate your neutral face for more accurate readings.</p>
+      </div>
+
+      <div class="pane" id="p-eyes">
+        <svg class="eyesvg" id="eyeSvg" viewBox="0 0 340 120"></svg>
+        <div class="stats">
+          <div><b id="eBlinks">0</b><span>blinks</span></div>
+          <div><b id="eRate">–</b><span>blinks / min</span></div>
+          <div><b id="eGaze">center</b><span>gaze</span></div>
+          <div><b id="eOpenL">–</b><span>your left eye open</span></div>
+          <div><b id="eOpenR">–</b><span>your right eye open</span></div>
+          <div><b id="ePerclos">–</b><span>eyes-closed time</span></div>
+        </div>
+        <h3 style="margin-top:14px">Eye gestures detected</h3>
+        <div class="feed" id="eyeFeed"></div>
+        <p class="sub">Detects: blink · double blink · long blink (eyes shut ≥ 1 s) · left / right wink · looking left, right, up or down (held ½ s) · wide eyes · squint. Normal is about 12–20 blinks a minute. A much higher rate can go with stress or dry eyes, and long closures can mean tiredness.</p>
+      </div>
+
+      <div class="pane" id="p-face">
+        <div class="chips" id="chips"></div>
+        <h3 style="margin-top:16px">Head pose</h3>
+        <div class="stats" style="margin-top:0">
+          <div><b id="hYaw">–</b><span>turn (yaw)</span></div>
+          <div><b id="hPitch">–</b><span>nod (pitch)</span></div>
+          <div><b id="hRoll">–</b><span>tilt (roll)</span></div>
+        </div>
+        <h3 style="margin-top:14px">Head gestures</h3>
+        <div class="feed" id="headFeed"></div>
+        <p class="sub">Nod = yes, shake = no. Both can be spoken automatically when eye/head commands are on.</p>
+      </div>
+
+      <div class="pane" id="p-hands">
+        <div class="hands" id="handCards"></div>
+        <p class="sub">Built-in signs: 👍 👎 ✊ 🖐 ☝️ ✌️ 🤟 👌 🤙 🤘 👉 🤏, three, four, L-shape and pinky. Hold a sign steady to type its phrase. You can change what each sign says under Settings.</p>
+        <div class="train">
+          <h3>✋ Teach your own sign</h3>
+          <div class="row"><input type="text" id="tName" placeholder="Sign name (e.g. Water)"><input type="text" id="tPhrase" placeholder="What it should say"></div>
+          <div class="row" style="margin-top:8px"><button class="btn" id="tRec">● Record 3 s</button><span class="sub" id="tStatus" style="margin:0">Show the sign to the camera, press record, and move your hand a little so it learns from several angles.</span></div>
+          <div class="custom" id="customList"></div>
+        </div>
+      </div>
+
+      <div class="pane" id="p-log">
+        <div class="row between"><h3 style="margin:0">All events</h3><button class="btn sm" id="logClear">Clear</button></div>
+        <div class="feed" id="logFeed" style="max-height:480px;margin-top:8px"></div>
+      </div>
+
+      <div class="pane" id="p-set">
+        <div class="set">
+          <label>Hold time to type a sign <input type="range" id="sHold" min="400" max="2500" step="100" value="900"><span id="sHoldV" class="pill">0.9 s</span></label>
+          <label>Custom-sign strictness <input type="range" id="sStrict" min="0.3" max="1.6" step="0.05" value="0.9"><span id="sStrictV" class="pill">0.90</span></label>
+          <label>Voice <select class="btn" id="sVoice" style="max-width:230px"></select></label>
+          <label>Speech rate <input type="range" id="sRate" min="0.6" max="1.4" step="0.05" value="0.95"><span id="sRateV" class="pill">0.95</span></label>
+        </div>
+        <h3 style="margin-top:18px">What each sign or gesture says</h3>
+        <p class="sub" style="margin-top:0">Leave a box empty to ignore that trigger. Special actions: <code>[speak]</code> speaks the sentence, <code>[undo]</code> removes the last word, <code>[clear]</code> clears it.</p>
+        <table class="map" id="mapTable"></table>
+        <div class="row" style="margin-top:10px"><button class="btn sm" id="mapReset">Restore defaults</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>
+  BHAAV runs Google MediaPipe face and hand models in your browser (WebAssembly + GPU). Camera frames are never uploaded or stored. Only your settings and custom signs are saved, in this browser. Emotion and stress readings are estimates from facial movement and are not medical or psychological assessments.
+</footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>
