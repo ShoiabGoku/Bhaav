@@ -72,7 +72,9 @@ const S = {
   hands: [], hold: { label: null, since: 0, fired: false, handSeen: 0 },
   sentence: [], map: { ...DEFAULT_MAP, ...store.get('map', {}) }, custom: store.get('custom', []),
   rec: null, events: [], stress: 0, drowsy: 0, attn: 0,
-  set: { hold: store.get('hold', 900), strict: store.get('strict', 0.9), rate: store.get('rate', 0.95), voice: store.get('voice', ''),
+  src: null, look: null, lower: 'none', glasses: false, lastLook: 0, light: { L: 128, boost: 1 },
+  set: { lowLight: store.get('lowLight', true), cover: store.get('cover', 'auto'), glassesSet: store.get('glassesSet', 'auto'),
+         hold: store.get('hold', 900), strict: store.get('strict', 0.9), rate: store.get('rate', 0.95), voice: store.get('voice', ''),
          typing: true, eyeCmd: true, auto: false, mesh: true, handsDraw: true, mirror: true },
 };
 
@@ -85,7 +87,8 @@ async function loadVideoModels() {
   const make = async delegate => {
     faceV = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', numFaces: 1,
-      outputFaceBlendshapes: true, minFaceDetectionConfidence: .5, minFacePresenceConfidence: .5, minTrackingConfidence: .5,
+      // lenient thresholds keep tracking through beards, masks, glasses, hands near the face
+      outputFaceBlendshapes: true, minFaceDetectionConfidence: .35, minFacePresenceConfidence: .35, minTrackingConfidence: .35,
     });
     gestV = await GestureRecognizer.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: GEST_MODEL, delegate }, runningMode: 'VIDEO', numHands: 2,
@@ -99,7 +102,7 @@ async function loadImageModels() {
   if (faceI) return;
   pill('models: loading…', 'warn');
   fileset = fileset || await FilesetResolver.forVisionTasks(WASM);
-  faceI = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 1, outputFaceBlendshapes: true });
+  faceI = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 1, outputFaceBlendshapes: true, minFaceDetectionConfidence: .35, minFacePresenceConfidence: .35 });
   gestI = await GestureRecognizer.createFromOptions(fileset, { baseOptions: { modelAssetPath: GEST_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numHands: 2 });
   pill('models: ready', 'ok');
 }
@@ -166,10 +169,21 @@ function loop() {
   S.lastVT = video.currentTime;
   if (overlay.width !== video.videoWidth) sizeTo(video.videoWidth, video.videoHeight);
   const t = now();
-  const fr = faceV.detectForVideo(video, t);
-  const gr = gestV.recognizeForVideo(video, t);
+  // In dim light, feed the models a brightened copy of the frame (and brighten the preview to match)
+  let src = video;
+  const boost = S.set.lowLight && S.light.boost > 1.05 ? S.light.boost : 1;
+  if (boost > 1) {
+    if (procCanvas.width !== video.videoWidth) { procCanvas.width = video.videoWidth; procCanvas.height = video.videoHeight; }
+    pctx.filter = `brightness(${boost.toFixed(2)}) contrast(1.15)`;
+    pctx.drawImage(video, 0, 0); src = procCanvas;
+  }
+  video.style.filter = boost > 1 ? `brightness(${boost.toFixed(2)}) contrast(1.15)` : '';
+  S.src = src;
+  const fr = faceV.detectForVideo(src, t);
+  const gr = gestV.recognizeForVideo(src, t);
   frame(fr, gr, t, true);
 }
+const procCanvas = document.createElement('canvas'), pctx = procCanvas.getContext('2d');
 
 /* ------------------------------------------------------------------ photo */
 async function analyzePhoto(src) {
@@ -184,6 +198,7 @@ async function analyzePhoto(src) {
   S.mode = 'photo';
   stage.classList.add('photo'); stage.classList.remove('mirror');
   $('#empty').style.display = 'none'; $('#bigemo').style.display = 'flex'; $('#photoBtn2').style.display = '';
+  S.src = photo; S.look = null;
   const fr = faceI.detect(img), gr = gestI.recognize(img);
   frame(fr, gr, now(), false);
   return summary();
@@ -226,27 +241,144 @@ function gazeOf(bs) {
     y: ((bs.eyeLookUpLeft + bs.eyeLookUpRight) - (bs.eyeLookDownLeft + bs.eyeLookDownRight)) / 2,
   };
 }
+/* ---- appearance: beard / moustache / face mask / glasses, and scene brightness.
+   Samples small colour patches at landmark positions and compares the lower face with the
+   upper-cheek skin, so the emotion model can lean on whatever parts of the face are visible. */
+const sampCanvas = document.createElement('canvas'), sctx = sampCanvas.getContext('2d', { willReadFrequently: true });
+function grab(src) {
+  const W = src.videoWidth || src.width, H = src.videoHeight || src.height; if (!W || !H) return null;
+  const w = 360, h = Math.round(w * H / W);
+  sampCanvas.width = w; sampCanvas.height = h;
+  sctx.filter = 'none'; sctx.drawImage(src, 0, 0, w, h);
+  return { d: sctx.getImageData(0, 0, w, h).data, w, h };
+}
+function patch(img, p, r) {
+  const cx = Math.round(p.x * img.w), cy = Math.round(p.y * img.h);
+  let n = 0, sL = 0, sL2 = 0, sB = 0, sR = 0;
+  for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+    if (x < 0 || y < 0 || x >= img.w || y >= img.h) continue;
+    const i = (y * img.w + x) * 4, R = img.d[i], G = img.d[i + 1], B = img.d[i + 2];
+    const L = .299 * R + .587 * G + .114 * B;
+    n++; sL += L; sL2 += L * L; sB += -.169 * R - .331 * G + .5 * B; sR += .5 * R - .419 * G - .081 * B;
+  }
+  if (!n) return { L: 0, sd: 0, cb: 0, cr: 0 };
+  const L = sL / n;
+  return { L, sd: Math.sqrt(Math.max(0, sL2 / n - L * L)), cb: sB / n, cr: sR / n };
+}
+const lerpP = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+const avgP = ps => { const o = { L: 0, sd: 0, cb: 0, cr: 0 }; for (const p of ps) for (const k in o) o[k] += p[k] / ps.length; return o; };
+function profileBand(img, a, b, n = 14) { // dark/bright band strength along a segment (glasses frames)
+  const v = []; for (let i = 0; i <= n; i++) v.push(patch(img, lerpP(a, b, i / n), 1).L);
+  const s = [...v].sort((x, y) => x - y), med = s[n >> 1] || 1;
+  let grad = 0; for (let i = 1; i < v.length; i++) grad = Math.max(grad, Math.abs(v[i] - v[i - 1]));
+  return { dark: (med - s[0]) / med, grad: grad / med };
+}
+function measureLook(src, lm) {
+  const img = grab(src); if (!img) return null;
+  const faceW = Math.abs(lm[454].x - lm[234].x) * img.w, r = Math.max(2, Math.round(faceW * .035));
+  const P = i => lm[i];
+  const skin = avgP([118, 347, 50, 280].map(i => patch(img, P(i), r)));
+  const moustache = avgP([lerpP(P(2), P(0), .55), lerpP(P(2), P(61), .6), lerpP(P(2), P(291), .6)].map(p => patch(img, p, r)));
+  const chin = avgP([lerpP(P(17), P(152), .55), lerpP(P(61), P(150), .55), lerpP(P(291), P(379), .55)].map(p => patch(img, p, r)));
+  const nose = patch(img, P(1), r);
+  const lip = patch(img, lerpP(P(14), P(17), .5), Math.max(1, r >> 1));
+  // Colour is compared relative to this person's own skin tone, so it works across complexions.
+  const skinSat = Math.max(15, Math.hypot(skin.cb, skin.cr));
+  const rel = p => Math.hypot(p.cb - skin.cb, p.cr - skin.cr) / skinSat, dL = p => p.L / (skin.L + 1);
+  // Mask vs beard: a mask covers the nose tip (colour unlike skin), and it is one piece of fabric, so the
+  // lower-lip spot matches the upper-lip spot. With a beard the nose stays skin and the lip stands out from the moustache.
+  const d = (a, b) => Math.hypot((a.L - b.L) / (skin.L + 1) * 1.5, Math.hypot(a.cb - b.cb, a.cr - b.cr) / skinSat);
+  const noseCovered = clamp((rel(nose) - .35) / .25);
+  const sameFabric = clamp((.35 - d(lip, moustache)) / .12) * clamp((.45 - d(lip, nose)) / .12);
+  const chinDiff = Math.max(clamp((rel(chin) - .3) / .25), clamp((Math.abs(dL(chin) - 1) - .2) / .1));
+  const mask = Math.max(noseCovered, sameFabric) * chinDiff;
+  // hair = darker than skin (dark beards) OR colour shifted from skin OR washed-out + textured (grey / stubble).
+  // Colour cues only count when the skin itself has measurable colour (not in grey or very pale footage).
+  const colourTrust = clamp((Math.hypot(skin.cb, skin.cr) - 12) / 10);
+  const hairy = p => Math.max(
+    clamp((.8 - dL(p)) / .25),
+    colourTrust * clamp((rel(p) - .3) / .25),
+    colourTrust * clamp((.8 - Math.hypot(p.cb, p.cr) / skinSat) / .15) * clamp((p.sd / (skin.sd + 4) - .8) / .4),
+  ) * (1 - mask);
+  // glasses: a dark/bright bar across the nose bridge between the eyes (a mask's top edge can mimic it, so be stricter then)
+  const bridge = profileBand(img, P(168), lerpP(P(168), P(6), .6));
+  const glasses = clamp((bridge.dark - (mask > .5 ? .55 : .22)) / .2);
+  return { beard: hairy(chin), moustache: hairy(moustache), mask, glasses, skinL: skin.L,
+    raw: { skin, moustache, chin, nose, lip, bridge, rel: { nose: rel(nose), chin: rel(chin) } } };
+}
+function applyLookMode() {
+  const L = S.look || { mask: 0, beard: 0, moustache: 0, glasses: 0 };
+  const autoLower = L.mask > .55 ? 'mask' : (L.beard > .5 || L.moustache > .55) ? 'beard' : 'none';
+  S.lower = S.set.cover === 'auto' ? autoLower : S.set.cover;
+  S.glasses = S.set.glassesSet === 'auto' ? L.glasses > .5 : S.set.glassesSet === 'yes';
+}
+function updateLook(face, t, live) {
+  if (!S.src || !face) return;
+  if (live && t - S.lastLook < 600) return;
+  S.lastLook = t;
+  const m = measureLook(S.src, face.lm); if (!m) return;
+  if (!S.look || !live) S.look = m;
+  else for (const k of ['beard', 'moustache', 'mask', 'glasses', 'skinL']) S.look[k] += .35 * (m[k] - S.look[k]);
+  S.look.raw = m.raw;
+  // brightness: boost toward a comfortable face luminance (measured on the un-boosted frame)
+  if (live) {
+    const faceL = S.look.skinL / (S.light.boost || 1);
+    S.light.L = faceL;
+    const want = faceL < 75 ? clamp(115 / Math.max(faceL, 8), 1, 2.6) : 1;
+    S.light.boost += .4 * (want - S.light.boost);
+  }
+  const prevLower = S.lower, prevG = S.glasses;
+  applyLookMode();
+  if (live && prevLower !== S.lower) {
+    const msg = S.lower === 'mask' ? '😷 Face covering detected. Reading emotions from eyes & brows' :
+      S.lower === 'beard' ? '🧔 Beard / moustache detected. Mouth signals boosted, eyes weighted more' : '🙂 Lower face fully visible';
+    log('emo', msg); toast(msg.split('.')[0]);
+  }
+  if (live && prevG !== S.glasses) log('eye', S.glasses ? '👓 Glasses detected. Eye thresholds relaxed' : '👓 No glasses');
+}
+
 const act = k => clamp(((S.bs?.[k] ?? 0) - (S.base[k] ?? .02)) / (1 - (S.base[k] ?? .02)));
 const act2 = k => (act(k + 'Left') + act(k + 'Right')) / 2;
 
 function emotionScores() {
-  const sm = N(act2('mouthSmile'), .6), fr = N(act2('mouthFrown'), .35), bd = N(act2('browDown'), .45), bi = N(act('browInnerUp'), .5),
-    bo = N(act2('browOuterUp'), .45), wide = N(act2('eyeWide'), .35), jaw = N(act('jawOpen'), .5), str = N(act2('mouthStretch'), .35),
-    press = N(act2('mouthPress'), .4), sneer = N(act2('noseSneer'), .35), up = N(act2('mouthUpperUp'), .4), shrug = N(act('mouthShrugLower'), .4),
+  // Beard/moustache: lip landmarks move less visibly, so mouth signals get more gain and smiling eyes count more.
+  // Face covering: mouth signals are guesses, so they are dropped and emotions come from eyes, brows and cheeks.
+  const mode = S.lower, mg = mode === 'beard' ? 1.45 : 1, mo = mode === 'mask' ? 0 : 1;
+  const M = (x, s) => mo * N(x * mg, s);
+  const sm = M(act2('mouthSmile'), .6), fr = M(act2('mouthFrown'), .35), bd = N(act2('browDown'), .45), bi = N(act('browInnerUp'), .5),
+    bo = N(act2('browOuterUp'), .45), wide = N(act2('eyeWide'), S.glasses ? .3 : .35), jaw = M(act('jawOpen'), .5), str = M(act2('mouthStretch'), .35),
+    press = M(act2('mouthPress'), .4), sneer = N(act2('noseSneer'), .35) * (mode === 'mask' ? .5 : 1), up = M(act2('mouthUpperUp'), .4), shrug = M(act('mouthShrugLower'), .4),
     chk = N(act2('cheekSquint'), .4), sq = N(act2('eyeSquint'), .5);
-  const smileAsym = N(Math.abs(act('mouthSmileLeft') - act('mouthSmileRight')), .3);
-  const dimpleAsym = N(Math.abs(act('mouthDimpleLeft') - act('mouthDimpleRight')), .3);
+  const smileAsym = M(Math.abs(act('mouthSmileLeft') - act('mouthSmileRight')), .3);
+  const dimpleAsym = M(Math.abs(act('mouthDimpleLeft') - act('mouthDimpleRight')), .3);
   const browAsym = N(Math.abs(act('browOuterUpLeft') - act('browOuterUpRight')) + Math.abs(act('browDownLeft') - act('browDownRight')), .35);
+  if (mode === 'mask') {
+    const eyeSmile = clamp(chk * .75 + sq * .35 * (1 - bd) - bi * .2);
+    const e = {
+      happy: eyeSmile,
+      sad: clamp(bi * .75 * (1 - bo) - eyeSmile * .5),
+      angry: clamp(bd * .85 + sq * .15 - bi * .2 - eyeSmile * .3),
+      surprised: clamp((bi + bo) / 2 * .7 + wide * .5 - bd * .5),
+      fear: clamp(bi * .55 + wide * .55 + bd * .15 - bo * .2 - eyeSmile * .5),
+      disgust: clamp(sneer * .8 + bd * sq * .3),
+      contempt: 0,
+      confused: clamp(browAsym * .7 + bd * bi * .8),
+    };
+    return finishEmotions(e);
+  }
   const e = {
-    happy: clamp(sm * .9 + chk * .25),
+    happy: clamp(sm * .9 + chk * (mode === 'beard' ? .4 : .25) + (mode === 'beard' ? sq * .12 * (1 - bd) : 0)),
     sad: clamp(fr * .6 + bi * .35 * (1 - bo) + shrug * .3 - sm * .8),
     angry: clamp(bd * .75 + press * .2 + sneer * .2 + sq * .15 - sm * .6 - bi * .2),
     surprised: clamp((bi + bo) / 2 * .55 + wide * .35 + jaw * .45 - bd * .5 - sm * .3),
     fear: clamp(bi * .4 + wide * .4 + str * .55 + bd * .1 - sm * .6 - jaw * .15),
     disgust: clamp(sneer * .65 + up * .45 - sm * .4),
     contempt: clamp(smileAsym * .7 * (1 - sm * .8) + dimpleAsym * .3),
-    confused: clamp(browAsym * .6 + bd * bi * .8 + N(act('mouthLeft') + act('mouthRight'), .4) * .2 - sm * .5),
+    confused: clamp(browAsym * .6 + bd * bi * .8 + M(act('mouthLeft') + act('mouthRight'), .4) * .2 - sm * .5),
   };
+  return finishEmotions(e);
+}
+function finishEmotions(e) {
   e.neutral = clamp(1 - Math.max(...Object.values(e)) * 1.6);
   let sum = 0;
   for (const k in e) { e[k] = Math.pow(e[k] + .002, 1.6); sum += e[k]; }
@@ -254,26 +386,27 @@ function emotionScores() {
   return e;
 }
 
+const MG = () => S.lower === 'beard' ? 1.45 : 1; // beard gain, as in emotionScores
 const FACE_ACTIONS = [
-  ['Smile', '😊', () => act2('mouthSmile'), .35],
-  ['Big grin', '😁', () => Math.min(act2('mouthSmile'), act('jawOpen') * 2), .3],
-  ['Smirk', '😏', () => Math.abs(act('mouthSmileLeft') - act('mouthSmileRight')) * 2, .5],
-  ['Frown', '☹️', () => act2('mouthFrown') * 1.6, .45],
+  ['Smile', '😊', () => act2('mouthSmile') * MG(), .35, 'mouth'],
+  ['Big grin', '😁', () => Math.min(act2('mouthSmile') * MG(), act('jawOpen') * 2), .3, 'mouth'],
+  ['Smirk', '😏', () => Math.abs(act('mouthSmileLeft') - act('mouthSmileRight')) * 2 * MG(), .5, 'mouth'],
+  ['Frown', '☹️', () => act2('mouthFrown') * 1.6 * MG(), .45, 'mouth'],
   ['Brows raised', '🤨', () => Math.max(act('browInnerUp'), act2('browOuterUp')), .35],
   ['One brow up', '🧐', () => Math.abs(act('browOuterUpLeft') - act('browOuterUpRight')) * 1.8, .45],
   ['Brows furrowed', '😣', () => act2('browDown') * 1.4, .4],
-  ['Mouth open', '😮', () => act('jawOpen'), .25],
-  ['"O" lips', '😯', () => act('mouthFunnel') * 1.5, .4],
-  ['Pucker / kiss', '😗', () => act('mouthPucker'), .5],
-  ['Lips pressed', '😬', () => act2('mouthPress') * 1.5, .45],
-  ['Lip bite / roll', '🫦', () => Math.max(act('mouthRollLower'), act('mouthRollUpper')) * 1.4, .45],
-  ['Chin raised', '🥺', () => act('mouthShrugLower') * 1.4, .45],
-  ['Cheeks puffed', '🐡', () => act('cheekPuff') * 1.5, .35],
+  ['Mouth open', '😮', () => act('jawOpen'), .25, 'mouth'],
+  ['"O" lips', '😯', () => act('mouthFunnel') * 1.5, .4, 'mouth'],
+  ['Pucker / kiss', '😗', () => act('mouthPucker'), .5, 'mouth'],
+  ['Lips pressed', '😬', () => act2('mouthPress') * 1.5, .45, 'mouth'],
+  ['Lip bite / roll', '🫦', () => Math.max(act('mouthRollLower'), act('mouthRollUpper')) * 1.4, .45, 'mouth'],
+  ['Chin raised', '🥺', () => act('mouthShrugLower') * 1.4, .45, 'mouth'],
+  ['Cheeks puffed', '🐡', () => act('cheekPuff') * 1.5, .35, 'mouth'],
   ['Nose wrinkle', '😖', () => act2('noseSneer') * 1.6, .4],
-  ['Upper lip raised', '😒', () => act2('mouthUpperUp') * 1.4, .45],
-  ['Lips stretched', '😬', () => act2('mouthStretch') * 1.8, .4],
-  ['Jaw sideways', '😜', () => Math.max(act('jawLeft'), act('jawRight')) * 2, .35],
-  ['Mouth sideways', '🫤', () => Math.max(act('mouthLeft'), act('mouthRight')) * 2, .4],
+  ['Upper lip raised', '😒', () => act2('mouthUpperUp') * 1.4, .45, 'mouth'],
+  ['Lips stretched', '😬', () => act2('mouthStretch') * 1.8, .4, 'mouth'],
+  ['Jaw sideways', '😜', () => Math.max(act('jawLeft'), act('jawRight')) * 2, .35, 'mouth'],
+  ['Mouth sideways', '🫤', () => Math.max(act('mouthLeft'), act('mouthRight')) * 2, .4, 'mouth'],
   ['Eyes wide', '😳', () => act2('eyeWide') * 1.6, .4],
   ['Squinting', '😑', () => act2('eyeSquint') * 1.3, .45],
   ['Eyes closed', '😌', () => act2('eyeBlink'), .55],
@@ -293,6 +426,7 @@ function analyzeFace(face, t, dt, live) {
   S.pose = { yaw: rawPose.yaw - S.pose0.yaw, pitch: rawPose.pitch - S.pose0.pitch, roll: rawPose.roll - S.pose0.roll };
   S.gaze = { x: rawGaze.x - S.gaze0.x, y: rawGaze.y - S.gaze0.y };
   S.open = { L: 1 - act('eyeBlinkLeft'), R: 1 - act('eyeBlinkRight') };
+  updateLook(face, t, live);
 
   const e = emotionScores();
   if (!live) { S.emo = e; }
@@ -314,7 +448,8 @@ function analyzeFace(face, t, dt, live) {
 function eyeStep(bs, t) {
   const E = S.eye;
   const bL = act('eyeBlinkLeft'), bR = act('eyeBlinkRight');
-  const CLOSE = .5, OPEN = .32;
+  // lenses and frames soften the lid signal, so glasses wearers get slightly lower thresholds
+  const CLOSE = S.glasses ? .44 : .5, OPEN = S.glasses ? .28 : .32;
   let st;
   if (bL > CLOSE && bR > CLOSE) st = 'closed';
   else if (bL > CLOSE && bR < OPEN && bL - bR > .35) st = 'winkL';
@@ -428,8 +563,10 @@ function computeIndicators(t) {
     'Darting eyes': N(shifts * 60 / span - 8, 40),
   };
   const w = { 'Fear-like face': .32, 'Fast blinking': .2, 'Lip press / bite': .15, 'Worried brows': .11, 'Fidgety head': .11, 'Darting eyes': .11 };
+  if (S.lower === 'mask') { delete comp['Lip press / bite']; delete w['Lip press / bite']; }
+  const wSum = Object.values(w).reduce((a, b) => a + b, 0);
   S.stressComp = comp;
-  S.stress = 100 * Object.keys(w).reduce((s, k) => s + w[k] * comp[k], 0);
+  S.stress = 100 * Object.keys(w).reduce((s, k) => s + w[k] * comp[k], 0) / wSum;
   const cl = S.eye.closedHist, perclos = cl.length ? cl.reduce((s, c) => s + c[1], 0) / cl.length : 0;
   const recentY = S.yawns.filter(y => t - y < 120000).length, recentL = S.longBlinks.filter(y => t - y < 120000).length;
   S.perclos = perclos;
@@ -667,6 +804,10 @@ function updateUI(t) {
   if (S.mode === 'camera') hud.push(`${Math.round(S.fps)} fps`);
   hud.push(S.face ? 'face ✓' : 'no face'); hud.push(`${S.hands.length} hand${S.hands.length === 1 ? '' : 's'}`);
   if (!S.calibrated && S.mode === 'camera') hud.push('not calibrated');
+  if (S.face && S.lower === 'beard') hud.push('🧔 beard mode');
+  if (S.face && S.lower === 'mask') hud.push('😷 eyes-only mode');
+  if (S.face && S.glasses) hud.push('👓');
+  if (S.mode === 'camera' && S.light.boost > 1.05) hud.push(`💡 boost ×${S.light.boost.toFixed(1)}`);
   $('#hud').innerHTML = hud.map(h => `<span>${h}</span>`).join('');
 
   const e = EMO[S.emoTop], ep = Math.round(S.emo[S.emoTop] * 100);
@@ -707,10 +848,12 @@ function updateUI(t) {
   } else { $('#nHead').textContent = '—'; $('#nHeadS').textContent = ''; }
 
   // facial action chips
-  $('#chips').innerHTML = FACE_ACTIONS.map(([n, ic, f, thr]) => {
+  $('#chips').innerHTML = FACE_ACTIONS.map(([n, ic, f, thr, part]) => {
+    if (S.lower === 'mask' && part === 'mouth') return `<div class="chip hidden" title="Hidden by face covering">${ic} ${n}<small> · covered</small></div>`;
     const v = S.bs ? clamp(f()) : 0;
     return `<div class="chip ${v > thr ? 'on' : ''}">${ic} ${n}<div class="m" style="width:${(v * 100).toFixed(0)}%"></div></div>`;
   }).join('');
+  renderLook();
 
   // hands
   const hs = S.hands;
@@ -742,6 +885,21 @@ function updateUI(t) {
   if (tot) $('#sessionSum').textContent = 'Session: ' + Object.entries(S.sessionCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${EMO[k].icon} ${Math.round(v / tot * 100)}%`).join(' · ');
 }
 
+function renderLook() {
+  const L = S.look, on = S.face && L;
+  const items = [
+    ['🧔', 'Beard', L?.beard, S.lower === 'beard' && L?.beard > .5], ['👨', 'Moustache', L?.moustache, S.lower === 'beard' && L?.moustache > .55],
+    ['😷', 'Mask / covering', L?.mask, S.lower === 'mask'], ['👓', 'Glasses', L?.glasses, S.glasses],
+    ['💡', S.light.boost > 1.05 ? `Low light · boost ×${S.light.boost.toFixed(1)}` : 'Lighting OK', on ? clamp(S.light.L / 160) : 0, S.light.boost > 1.05],
+  ];
+  $('#looks').innerHTML = items.map(([ic, n, v, flag]) => `<div class="look ${on && flag ? 'on' : ''}">${ic} ${n}<div class="track"><i style="width:${on ? Math.round(clamp(v || 0) * 100) : 0}%"></i></div></div>`).join('');
+  const src = S.set.cover === 'auto' ? 'auto-detected' : 'set manually';
+  $('#lookMode').textContent = !on ? '—' : S.lower === 'mask' ? 'eyes & brows mode' : S.lower === 'beard' ? 'beard-adapted' : 'full face';
+  $('#lookNote').textContent = !on ? 'Shows what the camera can see of the face, and how the reading adapts.' :
+    S.lower === 'mask' ? `Mouth covered (${src}). Emotions are read from eyes, brows and cheeks: smiling eyes, raised or knitted brows, widened eyes. Mouth actions are greyed out.` :
+    S.lower === 'beard' ? `Beard or moustache (${src}). Lip movement is harder to see, so mouth signals are amplified ×1.45 and smiling-eye cues count more. Calibrate your neutral face for best results.` :
+    'Whole face visible. All mouth, eye and brow signals are in use.' + (S.glasses ? ' Glasses detected, so blink thresholds are relaxed.' : '');
+}
 function drawEyes() {
   const el = $('#eyeSvg'), g = S.gaze, show = S.face;
   const eye = (cx, open, label) => {
@@ -813,7 +971,8 @@ function fillVoices() {
 }
 function summary() {
   return {
-    face: S.face, emotion: S.emoTop, emo: Object.fromEntries(Object.entries(S.emo).map(([k, v]) => [k, +v.toFixed(3)])),
+    face: S.face, emotion: S.emoTop, lower: S.lower, glasses: S.glasses,
+    look: S.look && Object.fromEntries(['beard', 'moustache', 'mask', 'glasses'].map(k => [k, +S.look[k].toFixed(2)])), emo: Object.fromEntries(Object.entries(S.emo).map(([k, v]) => [k, +v.toFixed(3)])),
     pose: S.pose && Object.fromEntries(Object.entries(S.pose).map(([k, v]) => [k, +v.toFixed(1)])),
     actions: S.bs ? FACE_ACTIONS.filter(([, , f, thr]) => f() > thr).map(a => a[0]) : [],
     hands: S.hands.map(h => ({ side: h.side, label: h.label, src: h.src, model: h.model.categoryName, fingers: h.f })),
@@ -853,7 +1012,11 @@ function wire() {
   rng('#sHold', 'hold', v => (v / 1000).toFixed(1) + ' s', holdPill); holdPill();
   rng('#sStrict', 'strict', v => v.toFixed(2));
   rng('#sRate', 'rate', v => v.toFixed(2));
-  $('#sVoice').onchange = e => { S.set.voice = e.target.value; store.set('voice', S.set.voice); };
+  const sel = (id, key) => { const el = $(id); el.value = S.set[key]; el.onchange = () => { S.set[key] = el.value; store.set(key, el.value); applyLookMode(); updateUI(now()); }; };
+  sel('#sCover', 'cover'); sel('#sGlasses', 'glassesSet');
+  $('#sLow').checked = S.set.lowLight;
+  $('#sLow').onchange = e => { S.set.lowLight = e.target.checked; store.set('lowLight', S.set.lowLight); if (!S.set.lowLight) S.light.boost = 1; };
+  $('#sVoice').onchange =e => { S.set.voice = e.target.value; store.set('voice', S.set.voice); };
   $('#mapTable').oninput = e => { const k = e.target.dataset.map; if (!k) return; S.map[k] = e.target.value; store.set('map', S.map); };
   $('#mapReset').onclick = () => { S.map = { ...DEFAULT_MAP }; store.set('map', {}); renderMap(); };
   $('#csvBtn').onclick = () => {
