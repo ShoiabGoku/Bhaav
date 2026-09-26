@@ -1,6 +1,7 @@
 // BHAAV — on-device expression, eye-gesture, head-gesture and hand-sign reader.
 import { FilesetResolver, FaceLandmarker, GestureRecognizer, DrawingUtils }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
+import { faceGeom, handGeom, extraShape, twoHand, palmFacing, contacts, combos, COMBOS, motionTracker, mentalRead, STATES, prayerSingle } from './reading.js';
 
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
 const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
@@ -41,7 +42,27 @@ const DEFAULT_BASE = {
 const HAND_SIGNS = {
   Thumb_Up: '👍 Thumbs up', Thumb_Down: '👎 Thumbs down', Closed_Fist: '✊ Fist', Open_Palm: '🖐 Open palm',
   Pointing_Up: '☝️ Point up', Point: '👉 Pointing', Victory: '✌️ Victory', ILoveYou: '🤟 I love you', OK: '👌 OK',
-  Call_Me: '🤙 Call me', Rock: '🤘 Rock on', Three: '3️⃣ Three', Four: '4️⃣ Four', L_Shape: '🫲 L-shape', Pinky: '🤙 Pinky', Pinch: '🤏 Pinch',
+  Call_Me: '🤙 Shaka / call me', Rock: '🤘 Rock on', Three: '3️⃣ Three', Four: '4️⃣ Four', L_Shape: '🫲 L-shape', Pinky: '🤙 Pinky', Pinch: '🤏 Pinch',
+  Finger_Heart: '🫰 Finger heart', Pinched: '🤌 Pinched fingers', Crossed_Fingers: '🤞 Fingers crossed', Point_You: '🫵 Pointing at you',
+  Finger_Gun: '🔫 Finger gun', Peace_Side: '✌️ Sideways peace', Vulcan: '🖖 Vulcan salute', Middle_Finger: '🖕 Middle finger',
+};
+const TWO_HAND = {
+  Heart_Hands: '🫶 Heart hands', Big_Heart: '💞 Big heart over head', Double_Finger_Heart: '🫰🫰 Double finger heart', Prayer: '🙏 Palms together',
+  X_Fingers: '✖️ Crossed-finger X (안돼)', X_Hands: '🙅 Crossed hands X', Double_Thumbs: '👍👍 Double thumbs up', Double_Peace: '✌️✌️ Double peace',
+  Double_Guns: '👉👉 Double finger guns', Photo_Frame: '📸 Photo frame', Hands_Up: '🙌 Hands up', Fists_Up: '💪 Fists up',
+  Steeple: '🔺 Steepled fingers', Shrug: '🤷 Shrug', Wave: '👋 Wave', Clap: '👏 Clap',
+};
+const COMBO_NAMES = Object.fromEntries(Object.entries(COMBOS).map(([k, [ic, n]]) => [k, `${ic} ${n}`]));
+const GESTURE_MEANING = {
+  Thumb_Up: 'Approval, yes, good job', Thumb_Down: 'Disapproval, no', Closed_Fist: 'Strength, or "help" in this app', Open_Palm: 'Hello, stop, or high-five',
+  Pointing_Up: 'Wait, one moment, or an idea', Point: 'Pointing something out', Victory: 'Peace or victory (V-sign)', ILoveYou: 'ASL "I love you"', OK: 'Okay, perfect',
+  Call_Me: 'Hang loose (shaka) or "call me"', Rock: 'Rock on, excitement', L_Shape: 'The letter L, or "loser" on the forehead',
+  Finger_Heart: 'Korean finger heart (손가락 하트): love and thanks', Pinched: '🤌 "What do you mean?!" or "perfection" (Italian)', Crossed_Fingers: 'Hoping for luck',
+  Point_You: '"You!" Pointing at the viewer', Finger_Gun: 'Playful "gotcha", "you got it"', Peace_Side: 'Sideways peace: playful, cute', Vulcan: 'Live long and prosper',
+  Middle_Finger: 'Rude insult: strong anger', Heart_Hands: 'Love, "I heart you"', Big_Heart: 'Korean arm heart over the head: big love (사랑해)',
+  Double_Finger_Heart: 'Extra love, fan service', Prayer: 'Please, thank you, namaste or sorry', X_Fingers: 'Korean X: no, not allowed (안돼)', X_Hands: 'No, stop, not okay',
+  Double_Thumbs: 'Super approval', Double_Peace: 'Hype, happy photo pose', Double_Guns: '"Ayy!" Playful', Photo_Frame: 'Framing a shot, "picture this"',
+  Hands_Up: 'Celebration, hooray', Fists_Up: 'Victory, "let\'s go!"', Steeple: 'Confidence, evaluating', Shrug: '"I don\'t know" or "whatever"', Wave: 'Hello or goodbye', Clap: 'Applause, well done',
 };
 const EYE_HEAD = {
   Nod: '↕ Head nod', Shake: '↔ Head shake', Long_Blink: '😌 Long blink (1 s)', Double_Blink: '👀 Double blink',
@@ -54,6 +75,14 @@ const DEFAULT_MAP = {
   Rock: 'That is great', Three: 'I want water', Four: 'I am hungry', L_Shape: 'I need the bathroom', Pinky: 'I am in pain', Pinch: 'A little',
   Nod: 'Yes', Shake: 'No', Long_Blink: '[speak]', Double_Blink: '', Wink_Left: '', Wink_Right: '[undo]',
   Tilt_Left: '', Tilt_Right: '', Look_Up: '', Yawn: '',
+  Finger_Heart: 'I love you', Pinched: 'What do you mean?', Crossed_Fingers: 'Wish me luck', Point_You: 'You',
+  Heart_Hands: 'I love you', Big_Heart: 'I love you so much', Double_Finger_Heart: 'Love you!', Prayer: 'Please',
+  X_Fingers: 'No, stop', X_Hands: 'No, stop', Double_Thumbs: 'That is great!', Hands_Up: 'Yay!', Fists_Up: "Let's go!",
+  Shrug: "I don't know", Wave: 'Hello', Clap: 'Well done!',
+  Forehead_Think: 'Let me think', Forehead_Overwhelmed: 'I have a headache', Facepalm: 'Oh no', Temples_Both: 'I am stressed',
+  Chin_Think: 'Hmm, let me think', Mouth_Shock: 'Oh my god!', Shh: 'Please be quiet', Nail_Bite: 'I am nervous', Kiss: 'Love you',
+  Eye_Rub: 'I am sleepy', Cover_Eyes: "I can't look", Ear_Listen: "I can't hear you", Ears_Cover: 'It is too loud',
+  Head_Scratch: "I don't understand", Hand_Heart: 'Thank you from my heart', Point_Self: 'Me?',
 };
 const QUICK = ['Yes', 'No', 'Hello', 'Thank you', 'Please', 'I need help', 'I am in pain', 'I want water', 'I am hungry',
   'I need the bathroom', 'I am tired', 'I feel cold', 'I feel hot', 'Call my family', 'I am okay', 'Wait, please'];
@@ -72,6 +101,7 @@ const S = {
   hands: [], hold: { label: null, since: 0, fired: false, handSeen: 0 },
   sentence: [], map: { ...DEFAULT_MAP, ...store.get('map', {}) }, custom: store.get('custom', []),
   rec: null, events: [], stress: 0, drowsy: 0, attn: 0,
+  scene: { two: null, combos: [] }, motion: motionTracker(), recent: {}, readEma: {}, read: [], micro: [], microSt: {}, smileType: '', mixed: [],
   src: null, look: null, lower: 'none', glasses: false, lastLook: 0, light: { L: 128, boost: 1 },
   set: { lowLight: store.get('lowLight', true), cover: store.get('cover', 'auto'), glassesSet: store.get('glassesSet', 'auto'),
          hold: store.get('hold', 900), strict: store.get('strict', 0.9), rate: store.get('rate', 0.95), voice: store.get('voice', ''),
@@ -86,13 +116,13 @@ async function loadVideoModels() {
   fileset = fileset || await FilesetResolver.forVisionTasks(WASM);
   const make = async delegate => {
     faceV = await FaceLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', numFaces: 1,
+      baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', numFaces: 2,
       // lenient thresholds keep tracking through beards, masks, glasses, hands near the face
       outputFaceBlendshapes: true, minFaceDetectionConfidence: .35, minFacePresenceConfidence: .35, minTrackingConfidence: .35,
     });
     gestV = await GestureRecognizer.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: GEST_MODEL, delegate }, runningMode: 'VIDEO', numHands: 2,
-      minHandDetectionConfidence: .5, minHandPresenceConfidence: .5, minTrackingConfidence: .5,
+      minHandDetectionConfidence: .4, minHandPresenceConfidence: .4, minTrackingConfidence: .4,
     });
   };
   try { await make('GPU'); } catch (e) { console.warn('GPU delegate failed, using CPU', e); await make('CPU'); }
@@ -102,8 +132,8 @@ async function loadImageModels() {
   if (faceI) return;
   pill('models: loading…', 'warn');
   fileset = fileset || await FilesetResolver.forVisionTasks(WASM);
-  faceI = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 1, outputFaceBlendshapes: true, minFaceDetectionConfidence: .35, minFacePresenceConfidence: .35 });
-  gestI = await GestureRecognizer.createFromOptions(fileset, { baseOptions: { modelAssetPath: GEST_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numHands: 2 });
+  faceI = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numFaces: 2, outputFaceBlendshapes: true, minFaceDetectionConfidence: .35, minFacePresenceConfidence: .35 });
+  gestI = await GestureRecognizer.createFromOptions(fileset, { baseOptions: { modelAssetPath: GEST_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numHands: 2, minHandDetectionConfidence: .35, minHandPresenceConfidence: .35 });
   pill('models: ready', 'ok');
 }
 function pill(t, cls) { const p = $('#modelPill'); p.textContent = t; p.className = 'pill ' + (cls || ''); }
@@ -208,9 +238,17 @@ async function analyzePhoto(src) {
 function frame(fr, gr, t, live) {
   const dt = S.lastT ? clamp(t - S.lastT, 1, 250) : 33;
   S.lastT = t; S.fps = S.fps * .9 + (1000 / dt) * .1;
-  const face = fr.faceBlendshapes?.length ? {
-    bs: Object.fromEntries(fr.faceBlendshapes[0].categories.map(c => [c.categoryName, c.score])),
-    lm: fr.faceLandmarks[0],
+  // with several people in view, follow the person making the gestures (face nearest the hands), else the largest face
+  const fw = lm => Math.abs(lm[454].x - lm[234].x) || 1e-3;
+  const handPts = (gr.landmarks || []).map(h => h[9]);
+  const maxW = Math.max(0, ...(fr.faceLandmarks || []).map(fw));
+  // size dominates, the detector's most confident face gets a bonus, closeness to the hands breaks ties
+  const faceScore = (lm, i) => 2 * fw(lm) / (maxW || 1) + (i === 0 ? .6 : 0)
+    - (handPts.length ? Math.min(8, Math.min(...handPts.map(p => Math.hypot(p.x - (lm[234].x + lm[454].x) / 2, p.y - lm[1].y))) / fw(lm)) / 8 : 0);
+  const fi = (fr.faceLandmarks || []).reduce((b, lm, i, all) => faceScore(lm, i) > faceScore(all[b], b) ? i : b, 0);
+  const face = fr.faceBlendshapes?.[fi] ? {
+    bs: Object.fromEntries(fr.faceBlendshapes[fi].categories.map(c => [c.categoryName, c.score])),
+    lm: fr.faceLandmarks[fi],
   } : null;
   const hands = (gr.landmarks || []).map((lm, i) => ({
     lm, wlm: gr.worldLandmarks[i],
@@ -218,8 +256,15 @@ function frame(fr, gr, t, live) {
     side: (gr.handedness?.[i]?.[0]?.categoryName === 'Left') ? 'Right' : 'Left',
     model: gr.gestures?.[i]?.[0] || { categoryName: 'None', score: 0 },
   }));
+  // a hand over the face would look like a mask or beard to the appearance sampler, so pause it then
+  S.handOnFace = !!face && hands.some(h => {
+    const L = face.lm, x0 = Math.min(L[234].x, L[454].x), x1 = Math.max(L[234].x, L[454].x), m = (x1 - x0) * .15;
+    return h.lm.some(p => p.x > x0 - m && p.x < x1 + m && p.y > L[10].y - m && p.y < L[152].y + m);
+  });
   analyzeFace(face, t, dt, live);
   analyzeHands(hands, t, live);
+  analyzeScene(face, t, live);
+  if (!live || t - (S.lastRead || 0) > 150) { S.lastRead = t; readMind(t, live); }
   render(face, hands);
   if (!live || t - (S.lastUI || 0) > 80) { S.lastUI = t; updateUI(t); }
 }
@@ -314,6 +359,7 @@ function applyLookMode() {
 }
 function updateLook(face, t, live) {
   if (!S.src || !face) return;
+  if (S.handOnFace) { if (!live) { S.look = null; applyLookMode(); } return; }
   if (live && t - S.lastLook < 600) return;
   S.lastLook = t;
   const m = measureLook(S.src, face.lm); if (!m) return;
@@ -429,6 +475,7 @@ function analyzeFace(face, t, dt, live) {
   updateLook(face, t, live);
 
   const e = emotionScores();
+  if (live) microStep(e, t);
   if (!live) { S.emo = e; }
   else { const a = 1 - Math.exp(-dt / 220); for (const k in e) S.emo[k] += a * (e[k] - S.emo[k]); }
   const top = Object.entries(S.emo).sort((x, y) => y[1] - x[1])[0][0];
@@ -442,6 +489,87 @@ function analyzeFace(face, t, dt, live) {
   eyeStep(face.bs, t);
   headStep(S.pose, t);
   temporalStep(t);
+}
+
+/* ---- micro-expressions (Ekman): a strong expression that flashes for 1/15–1/2 s and vanishes,
+   different from what the face is otherwise showing. Measured on the unsmoothed per-frame scores. */
+function microStep(raw, t) {
+  const M = S.microSt;
+  for (const k of ['happy', 'sad', 'angry', 'surprised', 'fear', 'disgust', 'contempt']) {
+    const st = M[k];
+    if (!st && raw[k] > .55 && S.emo[k] < .3 && S.eye.state === 'open') M[k] = { start: t, peak: raw[k] };
+    else if (st) {
+      st.peak = Math.max(st.peak, raw[k]);
+      if (raw[k] < .3) {
+        const dur = t - st.start; delete M[k];
+        if (dur >= 60 && dur <= 500 && S.emo[k] < .35) {
+          S.micro.unshift({ k, dur: Math.round(dur), t });
+          S.micro.length = Math.min(S.micro.length, 6);
+          log('emo', `⚡ Micro-expression: a ${Math.round(dur)} ms flash of ${EMO[k].name.toLowerCase()}`);
+        }
+      } else if (t - st.start > 600) delete M[k]; // lasted too long: a real expression, not a micro one
+    }
+  }
+}
+
+/* ---- the mentalist read: fuse every cue into likely states, with reasons and a response hint */
+function readMind(t, live) {
+  const cues = {};
+  // deliberate signals (gestures, hand-on-face) outweigh a resting face, as they would for a clinician
+  const cue = (k, v, why, weight = 1) => { if (v > .05) cues[k] = [clamp(v) * weight, why]; };
+  if (S.face) {
+    for (const k of ['happy', 'sad', 'angry', 'surprised', 'fear', 'disgust', 'contempt'])
+      cue(k, (S.emo[k] - .15) / .6, `Face shows ${EMO[k].name.toLowerCase()} (${Math.round(S.emo[k] * 100)}%)`);
+    cue('confusedFace', (S.emo.confused - .15) / .5, `Puzzled brows (${Math.round(S.emo.confused * 100)}%)`);
+    const g = S.gaze;
+    cue('gazeUp', (g.y - .12) / .3, 'Eyes drift upward, which often happens while retrieving a thought');
+    cue('gazeSide', (Math.abs(g.x) - .22) / .3, 'Looking away to the side');
+    cue('gazeDown', (-g.y - .3) / .3, 'Eyes lowered');
+    const br = blinkRate(); cue('blinkFast', (br - 24) / 16, `Blinking fast (${Math.round(br)}/min vs ~15 normal)`);
+    cue('drowsy', (S.drowsy - 25) / 50, 'Eyelids heavy, long closures or yawns');
+    cue('stressHigh', (S.stress - 35) / 35, `Several stress signs together (score ${Math.round(S.stress)})`);
+    if (S.lower !== 'mask') {
+      cue('lipPress', (act2('mouthPress') * 1.5 - .35) / .4, 'Lips pressed together');
+      cue('lipBite', (act('mouthRollLower') * 1.4 - .35) / .4, 'Lip biting / lips rolled in');
+      cue('suppress', Math.min(act('mouthShrugLower') * 1.4, act2('mouthPress') * 1.5) - .3, 'Chin pushed up with pressed lips: holding an emotion back');
+    }
+    cue('browFurrow', (act2('browDown') * 1.4 - .35) / .4, 'Brows knitted together');
+    if (S.pose) cue('headTilt', (Math.abs(S.pose.roll) - 9) / 12, 'Head tilted to one side');
+    if (S.mode === 'camera') cue('lookingAway', (50 - S.attn) / 40, 'Mostly not facing the screen');
+    // Duchenne vs social smile: a felt smile also lifts the cheeks and narrows the eyes
+    const sm = act2('mouthSmile') * MG(), duch = act2('cheekSquint') + act2('eyeSquint') * .5;
+    S.smileType = S.lower === 'mask' ? (S.emo.happy > .4 ? 'eyes are smiling' : '') : sm > .35 ? (duch > .22 ? 'genuine' : 'polite') : '';
+    if (S.smileType === 'genuine') cue('genuine', .8, 'Genuine (Duchenne) smile: the eyes smile too');
+    if (S.smileType === 'polite') cue('polite', .7, 'Polite smile that doesn\'t reach the eyes');
+  }
+  const ago = k => t - (S.recent[k] || -1e9);
+  if (ago('Nod') < 3000) cue('nod', 1, 'Nodded');
+  if (ago('Shake') < 3000) cue('shake', 1, 'Shook head');
+  if (ago('Yawn') < 10000) cue('yawn', 1, 'Yawned');
+  if (ago('Wave') < 3000) cue('Wave', 1, 'Waving');
+  if (ago('Clap') < 3000) cue('Clap', 1, 'Clapping');
+  const partLabels = ['Pinched', 'Closed_Fist', 'Open_Palm', 'Four', 'Three', 'Point', 'Pointing_Up', 'Peace_Side', 'Victory', 'L_Shape', 'Pinch', 'Call_Me', 'Thumb_Down', 'Crossed_Fingers'];
+  for (const h of S.hands) if (h.label && !h.label.startsWith('custom:') && !S.scene.two && !(S.scene.combos.length && partLabels.includes(h.label))) cue(h.label, h.conf, `${labelName(h.label)}: ${GESTURE_MEANING[h.label] || ''}`, 1.15);
+  if (S.scene.two) cue(S.scene.two, 1, `${TWO_HAND[S.scene.two]}: ${GESTURE_MEANING[S.scene.two] || ''}`, 1.4);
+  for (const c of S.scene.combos) cue(c.id, c.conf, `${COMBO_NAMES[c.id]}: ${COMBOS[c.id][2]}`, 1.4);
+
+  const ranked = mentalRead({ cues });
+  // smooth state scores so the read doesn't flicker
+  const a = live ? .3 : 1, E = S.readEma;
+  for (const k in E) E[k] *= (1 - a);
+  for (const r of ranked) E[r.st] = (E[r.st] || 0) + a * r.s;
+  const why = Object.fromEntries(ranked.map(r => [r.st, r.why]));
+  S.read = Object.entries(E).filter(([, v]) => v > .12).sort((x, y) => y[1] - x[1]).slice(0, 3)
+    .map(([st, v]) => ({ st, conf: clamp(v / 1.4), icon: STATES[st][0], name: STATES[st][1], tip: STATES[st][2], why: why[st] || S.read.find(r => r.st === st)?.why || [] }));
+
+  // mixed signals: when the channels disagree, a good clinician says so rather than picking one
+  const mixed = [], neg = ['sad', 'angry', 'disgust', 'contempt'].filter(k => S.emo[k] > .35);
+  const posGesture = S.hands.some(h => ['Thumb_Up', 'OK'].includes(h.label)) || S.scene.two === 'Double_Thumbs';
+  if (S.face && ago('Nod') < 3000 && neg.length) mixed.push(`Nodding "yes", but the face looks ${EMO[neg[0]].name.toLowerCase()}. They may be agreeing reluctantly.`);
+  if (S.face && posGesture && (S.emo.sad > .35 || S.stress > 55)) mixed.push('Positive hand sign, but the face shows sadness or stress. They may be putting on a brave face.');
+  if (S.smileType === 'polite' && S.stress > 45) mixed.push('Smiling, but with several stress signs. This could be masking discomfort.');
+  if (S.face && ago('Shake') < 3000 && S.emo.happy > .4) mixed.push('Shaking the head while smiling. Probably a playful "no way!", or disbelief.');
+  S.mixed = mixed;
 }
 
 /* ---- eyes: blink / double / long blink / wink / gaze holds */
@@ -631,13 +759,19 @@ function classifyHand(h) {
   const f = fingerStates(h.wlm);
   const feat = handFeature(h.wlm, h.side);
   const cm = matchCustom(feat);
+  const g = handGeom(h, overlay.width || 1280, overlay.height || 720);
+  const pf = palmFacing(h.wlm, h.side);
+  const base = { ...h, f, g, palmUp: pf.up > .55, palmUpness: pf.up, palmCamera: pf.camera, count: [f.T, f.I, f.M, f.R, f.P].filter(Boolean).length };
   let label = null, src = '', conf = 0;
+  const extra = extraShape(base, g);
   if (cm) { label = 'custom:' + cm.c.id; src = 'your sign'; conf = clamp(1 - cm.d / S.set.strict * .6); }
+  else if (extra) { label = extra; src = 'hand shape'; conf = .75; }
   else if (h.model.categoryName !== 'None' && h.model.score > .55) { label = h.model.categoryName; src = 'model'; conf = h.model.score; }
   else { const s = shapeGesture(h.wlm, h.lm, f); if (s) { label = s; src = 'hand shape'; conf = .7; } }
-  return { ...h, f, feat, label, src, conf, count: [f.T, f.I, f.M, f.R, f.P].filter(Boolean).length };
+  return { ...base, feat, label, src, conf };
 }
-const labelName = l => l?.startsWith('custom:') ? '✋ ' + (S.custom.find(c => 'custom:' + c.id === l)?.name || 'custom') : (HAND_SIGNS[l] || l || '—');
+const labelName = l => l?.startsWith('custom:') ? '✋ ' + (S.custom.find(c => 'custom:' + c.id === l)?.name || 'custom')
+  : (HAND_SIGNS[l] || TWO_HAND[l] || COMBO_NAMES[l] || l || '—');
 
 function analyzeHands(hands, t, live) {
   S.hands = hands.map(classifyHand);
@@ -645,9 +779,43 @@ function analyzeHands(hands, t, live) {
     if (t > S.rec.start) S.rec.samples.push(S.hands[0].feat);
     if (t > S.rec.start + 3000) finishRecording();
   }
+}
+
+/* ---- scene: two-hand gestures, hand↔face combos, motion; then hold-to-type on the strongest label */
+function comboContext() {
+  if (!S.bs) return {};
+  const smile = S.lower === 'mask' ? S.emo.happy : act2('mouthSmile') * MG();
+  return { smile, eyesClosed: act2('eyeBlink'), lowLids: act2('eyeBlink') * 1.3, wide: act2('eyeWide') * 1.6, surprised: S.emo.surprised,
+    frown: act2('mouthFrown') * 1.6, browDown: act2('browDown') * 1.4, jawOpen: act('jawOpen'), pucker: act('mouthPucker'), confusedBrow: S.emo.confused };
+}
+function analyzeScene(face, t, live) {
+  let fg = face ? faceGeom(face.lm, overlay.width, overlay.height) : null;
+  if (fg) { S.lastFg = fg; S.lastFgT = t; S.lastCx = comboContext(); }
+  // Hands over the face often make the face tracker lose it. For a moment, keep using where the face was.
+  const occluded = !fg && live && S.lastFg && t - S.lastFgT < 3000 && S.hands.some(h => {
+    const q = S.lastFg.toFace(h.g.palm); return Math.abs(q.u) < 1.1 && q.v > -.2 && q.v < 1.2 && h.g.pl / S.lastFg.fw > .3;
+  });
+  if (occluded) fg = S.lastFg;
+  for (const h of S.hands) h.touch = fg ? contacts(h, fg) : {};
+  let two = S.hands.length === 2 ? twoHand(S.hands[0], S.hands[1], fg) : null;
+  if (!two && S.hands.length === 1 && prayerSingle(S.hands[0], fg)) two = 'Prayer';
+  let cmb = fg && S.hands.length ? combos(S.hands, fg, face ? comboContext() : S.lastCx || {}) : [];
+  if (two) cmb = []; // the hands are busy making a two-hand sign
+  // with the face hidden, expression-based readings are guesses; hiding the face is the signal
+  if (occluded) cmb = [{ id: 'Face_Hidden', conf: .8 }];
+  S.scene = { fg, two, combos: cmb };
+  const prev = S.lastScene || {};
+  if (two && two !== prev.two) log('hand', `${TWO_HAND[two]}: ${GESTURE_MEANING[two] || ''}`);
+  if (cmb[0] && cmb[0].id !== prev.combo) log('emo', `${COMBO_NAMES[cmb[0].id]}: ${COMBOS[cmb[0].id][2]}`);
+  S.lastScene = { two, combo: cmb[0]?.id };
   if (!live) return;
-  const H = S.hold, primary = S.hands.find(h => h.label);
-  const label = primary?.label || null;
+  for (const ev of S.motion(S.hands, t)) { S.recent[ev] = t; fire(ev, t); }
+  // priority: two-hand gesture > hand-on-face combo > single-hand sign
+  const primary = S.hands.find(h => h.label);
+  holdStep(two || (cmb[0]?.conf > .5 ? cmb[0].id : null) || primary?.label || null, t);
+}
+function holdStep(label, t) {
+  const H = S.hold;
   if (S.hands.length) H.handSeen = t;
   if (label !== H.label) {
     // brief tracking dropouts shouldn't reset a hold
@@ -661,10 +829,11 @@ function analyzeHands(hands, t, live) {
 
 /* ------------------------------------------------------------------ triggers → words */
 function fire(trigger, t) {
-  const isHand = trigger in HAND_SIGNS || trigger.startsWith('custom:');
+  const isHand = trigger in HAND_SIGNS || trigger in TWO_HAND || trigger in COMBOS || trigger.startsWith('custom:');
   let phrase = '', name;
   if (trigger.startsWith('custom:')) { const c = S.custom.find(c => 'custom:' + c.id === trigger); phrase = c?.phrase || ''; name = '✋ ' + (c?.name || 'custom sign'); }
-  else { phrase = S.map[trigger] || ''; name = HAND_SIGNS[trigger] || EYE_HEAD[trigger] || trigger; }
+  else { phrase = S.map[trigger] || ''; name = labelName(trigger) !== trigger ? labelName(trigger) : EYE_HEAD[trigger] || trigger; }
+  S.recent[trigger] = t;
   const cls = isHand ? 'hand' : /Nod|Shake|Tilt/.test(trigger) ? 'head' : trigger === 'Yawn' ? 'emo' : 'eye';
   const enabled = isHand ? S.set.typing : S.set.eyeCmd;
   log(cls, name + (phrase && enabled ? ` → “${phrase}”` : ''));
@@ -796,6 +965,22 @@ function render(face, hands) {
     }
   });
   if (S.rec && now() > S.rec.start) drawText(20 * sc, H - 30 * sc, `● Recording “${S.rec.name}” (${S.rec.samples.length})`, '#fb7185', 26 * sc);
+  // hand-on-face contact: ring the touched zone, name the combo above the head
+  const fg = S.scene.fg;
+  if (fg && S.scene.combos.length) {
+    for (const h of S.hands) for (const [zn, c] of Object.entries(h.touch || {})) {
+      if (c.s < .35) continue;
+      const z = fg.zones[zn];
+      octx.strokeStyle = `rgba(167,139,250,${.35 + c.s * .6})`; octx.lineWidth = 3 * sc;
+      octx.beginPath(); octx.arc(z.x, z.y, z.r * .8, 0, Math.PI * 2); octx.stroke();
+    }
+    const c = S.scene.combos[0], hp = fg.zones.headTop;
+    drawText(hp.x - 120 * sc, hp.y - 10 * sc, COMBO_NAMES[c.id], '#c4b5fd', 26 * sc);
+  }
+  if (S.scene.two && S.hands.length === 2) {
+    const m = S.hands.map(h => h.g.palm), x = (m[0].x + m[1].x) / 2, y = Math.min(...S.hands.flatMap(h => h.g.p.map(p => p.y)));
+    drawText(x - 110 * sc, y - 44 * sc, TWO_HAND[S.scene.two], '#5eead4', 28 * sc);
+  }
 }
 
 /* ------------------------------------------------------------------ UI updates */
@@ -880,7 +1065,7 @@ function updateUI(t) {
     const a = Math.round(S.attn), al = a > 80 ? ['Focused', 'var(--teal)'] : a > 50 ? ['Partly', 'var(--amber)'] : ['Looking away', 'var(--rose)'];
     $('#attnV').textContent = a + '%'; $('#attnL').textContent = al[0]; $('#attnL').style.color = al[1];
   }
-  drawCircumplex(); drawTimeline();
+  drawCircumplex(); drawTimeline(); renderMind();
   const tot = Object.values(S.sessionCounts).reduce((a, b) => a + b, 0);
   if (tot) $('#sessionSum').textContent = 'Session: ' + Object.entries(S.sessionCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${EMO[k].icon} ${Math.round(v / tot * 100)}%`).join(' · ');
 }
@@ -958,8 +1143,33 @@ function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ------------------------------------------------------------------ settings UI */
+function renderMind() {
+  const r = S.read, top = r[0], any = S.face || S.hands.length;
+  $('#mIcon').textContent = top && any ? top.icon : '·';
+  $('#mName').textContent = top && any ? top.name : any ? 'Calm, neutral baseline' : 'Waiting for a face or hands…';
+  $('#mTip').textContent = top && any ? '💬 ' + top.tip : any ? 'Nothing stands out right now.' : 'Face, eyes, head and hands are read together, the way a clinician would.';
+  $('#mConf').textContent = top && any ? `${Math.round(top.conf * 100)}% confidence` : '—';
+  $('#mWhy').innerHTML = top && any ? top.why.map(w => `<div>${esc(w)}</div>`).join('') : '';
+  $('#mMixed').innerHTML = any && S.mixed.length ? '⚠️ <b>Mixed signals.</b> ' + S.mixed.map(esc).join(' ') : '';
+  $('#mAlt').innerHTML = any && r.length > 1 ? 'Also possible: ' + r.slice(1).map(x => `<span>${x.icon} ${esc(x.name)} ${Math.round(x.conf * 100)}%</span>`).join('') : '';
+  const chips = [];
+  if (S.scene.two) chips.push(`<span>${TWO_HAND[S.scene.two]}</span>`);
+  for (const c of S.scene.combos) chips.push(`<span class="combo">${COMBO_NAMES[c.id]}</span>`);
+  const parts = ['Pinched', 'Closed_Fist', 'Open_Palm', 'Four', 'Three', 'Point', 'Pointing_Up', 'L_Shape', 'Pinch', 'Call_Me', 'Thumb_Down', 'Crossed_Fingers'];
+  for (const h of S.hands) if (h.label && !(S.scene.two && h.label !== S.scene.two) && !(S.scene.combos.length && parts.includes(h.label))) chips.push(`<span>${esc(labelName(h.label))}</span>`);
+  $('#mGest').innerHTML = chips.join('');
+  $('#sceneRow').innerHTML = chips.join('') || '<span class="sub" style="margin:0">No two-hand or hand-on-face gesture right now.</span>';
+  $('#mSmile').textContent = S.smileType === 'genuine' ? '😊 Genuine (Duchenne) smile' : S.smileType === 'polite' ? '🙂 Polite / social smile' : S.smileType ? '😊 Smiling eyes' : '';
+  const m = S.micro.filter(x => now() - x.t < 20000);
+  $('#mMicro').textContent = m.length ? '⚡ Micro-expressions: ' + m.map(x => `${EMO[x.k].icon} ${x.dur} ms`).join(', ') : '';
+}
+function renderGuide() {
+  const sec = (title, set, meaning) => `<h4>${title}</h4>` + Object.entries(set).map(([k, n]) => `<div><b>${n}</b><span>${esc(meaning(k) || '')}</span></div>`).join('');
+  $('#guide').innerHTML = sec('One hand', HAND_SIGNS, k => GESTURE_MEANING[k]) + sec('Two hands & motion', TWO_HAND, k => GESTURE_MEANING[k])
+    + sec('Hand + face (read with the expression)', COMBO_NAMES, k => COMBOS[k][2]) + sec('Eyes & head', EYE_HEAD, () => '');
+}
 function renderMap() {
-  const rows = [['Hand signs', HAND_SIGNS], ['Eye & head', EYE_HEAD]].map(([title, set]) =>
+  const rows = [['Hand signs', HAND_SIGNS], ['Two hands & motion', TWO_HAND], ['Hand + face', COMBO_NAMES], ['Eye & head', EYE_HEAD]].map(([title, set]) =>
     `<tr><td colspan="2" style="color:var(--teal);padding-top:10px;font-weight:600">${title}</td></tr>` +
     Object.entries(set).map(([k, n]) => `<tr><td>${n}</td><td><input data-map="${k}" value="${esc(S.map[k] || '')}"></td></tr>`).join('')).join('');
   $('#mapTable').innerHTML = rows;
@@ -975,7 +1185,10 @@ function summary() {
     look: S.look && Object.fromEntries(['beard', 'moustache', 'mask', 'glasses'].map(k => [k, +S.look[k].toFixed(2)])), emo: Object.fromEntries(Object.entries(S.emo).map(([k, v]) => [k, +v.toFixed(3)])),
     pose: S.pose && Object.fromEntries(Object.entries(S.pose).map(([k, v]) => [k, +v.toFixed(1)])),
     actions: S.bs ? FACE_ACTIONS.filter(([, , f, thr]) => f() > thr).map(a => a[0]) : [],
-    hands: S.hands.map(h => ({ side: h.side, label: h.label, src: h.src, model: h.model.categoryName, fingers: h.f })),
+    hands: S.hands.map(h => ({ side: h.side, label: h.label, src: h.src, model: h.model.categoryName, fingers: h.f, palmUp: h.palmUp,
+      touch: Object.entries(h.touch || {}).filter(([, c]) => c.s > .3).map(([z, c]) => `${z}:${c.part}:${c.s.toFixed(2)}`).join(' ') })),
+    two: S.scene.two, combos: S.scene.combos.map(c => c.id + ' ' + c.conf.toFixed(2)),
+    read: S.read.map(r => `${r.name} ${Math.round(r.conf * 100)}%`), mixed: S.mixed, smile: S.smileType,
   };
 }
 
@@ -1027,10 +1240,10 @@ function wire() {
   };
   $('#legend').innerHTML = EMOTIONS.map(e => `<span><i style="background:${EMO_COLOR[e.k]}"></i>${e.name.split(' /')[0]}</span>`).join('');
   if ('speechSynthesis' in window) { fillVoices(); speechSynthesis.onvoiceschanged = fillVoices; }
-  renderMap(); renderCustom(); renderSentence(); $('#sentence').innerHTML = $('#sentence').innerHTML.replace('Sentence is empty.', 'Hold a hand sign (👍 = Yes, ✊ = I need help, ✌️ = Thank you…), nod or shake your head, or tap a phrase below.');
+  renderMap(); renderGuide(); renderCustom(); renderSentence(); $('#sentence').innerHTML = $('#sentence').innerHTML.replace('Sentence is empty.', 'Hold a hand sign (👍 = Yes, ✊ = I need help, ✌️ = Thank you…), nod or shake your head, or tap a phrase below.');
   updateUI(now());
 }
 wire();
 
 // Test/automation hook
-window.__BHAAV = { S, analyzePhoto, summary, fire, classifyHand, shapeGesture, fingerStates, eyeStep, headStep, emotionScores, act, frame, startCalibration, finishCalibration };
+window.__BHAAV = { S, readMind, analyzeScene, holdStep, microStep, analyzePhoto, summary, fire, classifyHand, shapeGesture, fingerStates, eyeStep, headStep, emotionScores, act, frame, startCalibration, finishCalibration };

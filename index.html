@@ -118,6 +118,30 @@ canvas.timeline{width:100%;height:110px;display:block;background:#070b10;border-
 .chip .m{position:absolute;left:0;bottom:0;height:3px;background:var(--teal);width:0;transition:width .12s}
 .chip.on{border-color:var(--teal);color:#ccfbf1;background:#0f2a27}
 .chip.hidden{opacity:.4;border-style:dashed}
+.mind{background:linear-gradient(160deg,#131b26,#101720);border-color:#2b3b50}
+.mtop{display:flex;gap:12px;align-items:center}
+.mtop>b{font-size:42px;line-height:1}
+.mtop strong{font-size:20px;display:block}
+.mtip{font-size:13px;color:var(--teal);margin-top:3px;line-height:1.4}
+.mwhy{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.mwhy div{font-size:13px;color:var(--dim);padding-left:14px;position:relative;line-height:1.4}
+.mwhy div::before{content:'›';position:absolute;left:2px;color:var(--amber)}
+.mwarn:empty,.malt:empty,.mgest:empty{display:none}
+.mwarn{margin-top:10px;background:#2a200c;border:1px solid #6b5222;color:#fde68a;border-radius:10px;padding:8px 10px;font-size:13px;line-height:1.45}
+.malt{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--dim)}
+.malt span{background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:3px 9px}
+.mgest{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+.mgest span{background:#0f2a27;border:1px solid #1f5f58;color:#ccfbf1;border-radius:9px;padding:4px 9px;font-size:13px}
+.mgest span.combo{background:#241a38;border-color:#4c3d7a;color:#ddd6fe}
+.mfoot{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--faint)}
+.mfoot span:empty{display:none}
+.mfoot span{background:var(--panel2);border-radius:8px;padding:3px 8px}
+details.guide{margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
+details.guide summary{cursor:pointer;color:var(--dim);font-weight:600;font-size:14px}
+.gl{display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;max-height:420px;overflow:auto}
+.gl div{display:grid;grid-template-columns:minmax(150px,40%) 1fr;gap:10px;font-size:13px;padding:5px 8px;background:var(--panel2);border-radius:8px}
+.gl div span{color:var(--dim)}
+.gl h4{margin:10px 0 2px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
 .chip small{color:var(--faint)}
 .looks{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px}
 .look{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
@@ -228,6 +252,16 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
       </div>
     </div>
 
+    <div class="card mind">
+      <h3>🧠 Mentalist read <span class="grow"></span><span class="pill" id="mConf">—</span></h3>
+      <div class="mtop"><b id="mIcon">·</b><div><strong id="mName">Waiting for a face or hands…</strong><div class="mtip" id="mTip">Face, eyes, head and hands are read together, the way a clinician would.</div></div></div>
+      <div class="mwhy" id="mWhy"></div>
+      <div class="mwarn" id="mMixed"></div>
+      <div class="malt" id="mAlt"></div>
+      <div class="mgest" id="mGest"></div>
+      <div class="mfoot"><span id="mSmile"></span><span id="mMicro"></span></div>
+    </div>
+
     <div class="card">
       <div class="tabs" id="tabs">
         <button data-p="emo" class="act">Emotions</button>
@@ -296,7 +330,9 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
 
       <div class="pane" id="p-hands">
         <div class="hands" id="handCards"></div>
-        <p class="sub">Built-in signs: 👍 👎 ✊ 🖐 ☝️ ✌️ 🤟 👌 🤙 🤘 👉 🤏, three, four, L-shape and pinky. Hold a sign steady to type its phrase. You can change what each sign says under Settings.</p>
+        <div class="row" id="sceneRow" style="margin-top:10px;gap:6px"></div>
+        <p class="sub">Understands 24 single-hand signs (including 🫰 🤌 🤞 🫵 🔫 🖖), 16 two-hand and motion gestures (🫶 💞 🙏 ✖️ 👍👍 🙌 👋 👏 🤷…) and 40 hand-on-face combinations. Hold one steady to type its phrase. Settings lets you change what each one says.</p>
+        <details class="guide"><summary>📖 Gesture guide: everything BHAAV understands</summary><div class="gl" id="guide"></div></details>
         <div class="train">
           <h3>✋ Teach your own sign</h3>
           <div class="row"><input type="text" id="tName" placeholder="Sign name (e.g. Water)"><input type="text" id="tPhrase" placeholder="What it should say"></div>
