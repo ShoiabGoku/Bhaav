@@ -10,6 +10,7 @@ A browser app that uses the camera to read:
 - **Hand signs**: 16 built-in signs (MediaPipe's gesture model plus a finger-state classifier), and a **"teach your own sign"** k-NN trainer, so ISL/ASL signs or personal gestures can be added.
 - **Gen-Z and K-pop signs** (`reading.js`): 🫰 Korean finger heart, 🤌, 🤞, 🫵, 🔫 finger gun, sideways ✌️ and 🖖. Two-hand gestures: 🫶 heart hands, 💞 big heart over the head, 🫰🫰, 🙏 namaste (even when the detector merges both palms into one hand), ✖️ Korean X (안돼), 👍👍, ✌️✌️, 🙌, 💪, 📸 frame, steepled fingers and 🤷 shrug. Motion gestures: 👋 wave and 👏 clap.
 - **Hand + face combinations**: 40 of them, read together with the expression. Hand on forehead is thinking, or overwhelmed with eyes shut, or "oops" with a smile. Finger to temple, facepalm, hand on chin (thinker / critical evaluation / bored chin-rest), 🤫, hand over mouth (shock / giggle / holding back words), nail-biting, rubbing eyes, 🙈, gyaru peace, aegyo cheek poke, flower pose, Home-Alone cheeks, ear cup, head scratch, hands behind head, 🫡, hand on heart, hiding face in hands and more. Each hand is placed on a face coordinate map (across the face; chin 0 to hairline 1), so the reading depends on where the palm sits and where the fingertips reach. When a hand hides the face the tracker loses it, so the last face position is kept for 3 s.
+- **Sleep & energy** (`alertness.js`): an alertness score (0–100) from Active & energetic, through Alert, A little tired, Sleepy and Very drowsy, to Falling asleep. It is built from live drowsiness signs: PERCLOS (share of time the eyes are closed), blink length, long closures, **micro-sleeps** (eyes shut 2 s+), yawns, **head nodding off**, and a glazed stare. A separate **"Did they sleep well?"** verdict comes from the face and works even on a photo: hanging eyelids, dark circles, red eyes and drooping mouth corners. Dark circles are measured *below vs above* the eye, so overhead-light shadows on deep-set eyes don't count. Blink thresholds follow each person's resting lid level, so heavy, sleepy lids still register blinks correctly. There is an optional **wake-up alarm** (beep plus "Wake up!") for micro-sleeps and nod-offs, a session alertness graph, and an Energy tile. Eyelid droop is measured against your own eyes once you calibrate while awake.
 - **Mentalist read**: fuses face, eyes (gaze aversion while thinking, blink rate), head (nods, tilts), hands and hand-face contact into 20 psychological states, each with its reasons and a **"how to respond"** hint. It also flags **mixed signals** (nodding with a sad face, a polite smile under stress), tells **genuine (Duchenne) from polite smiles**, and catches **micro-expressions** (60–500 ms flashes). Deliberate gestures are weighted above a resting face.
 - **Speak for me**: holding a sign, nodding/shaking, or blinking types phrases into a sentence, which the browser speaks aloud. There's also a phrase board and an SOS button. Every trigger→phrase mapping can be edited.
 
@@ -31,7 +32,13 @@ Then open http://localhost:8765. The camera needs `localhost` or HTTPS.
 const { run } = await import('/tools/gesture-tests.js'); await run();   // currently 18/19
 ```
 
-The one miss is a photo where the subject's face isn't detected at all, because his hand hides it and only people behind him are found.
+`tools/alertness-tests.js` checks 11 photos (9 rested faces, including deep-set eyes, beards and glasses, plus 2 with dark circles / sleep deprivation) and three simulated 90 s webcam sessions (alert, moderately tired, drowsy with a micro-sleep and a nod-off). Currently 14/14:
+
+```js
+const { run } = await import('/tools/alertness-tests.js'); await run();
+```
+
+In the gesture suite, the one miss is a photo where the subject's face isn't detected at all, because his hand hides it and only people behind him are found.
 
 ## Test hook
 

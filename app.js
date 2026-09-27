@@ -1,6 +1,7 @@
 // BHAAV — on-device expression, eye-gesture, head-gesture and hand-sign reader.
 import { FilesetResolver, FaceLandmarker, GestureRecognizer, DrawingUtils }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
+import { scoreAlertness } from './alertness.js';
 import { faceGeom, handGeom, extraShape, twoHand, palmFacing, contacts, combos, COMBOS, motionTracker, mentalRead, STATES, prayerSingle } from './reading.js';
 
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
@@ -67,7 +68,7 @@ const GESTURE_MEANING = {
 const EYE_HEAD = {
   Nod: '↕ Head nod', Shake: '↔ Head shake', Long_Blink: '😌 Long blink (1 s)', Double_Blink: '👀 Double blink',
   Wink_Left: '😉 Wink (your left)', Wink_Right: '😉 Wink (your right)', Tilt_Left: '↖ Head tilt left', Tilt_Right: '↗ Head tilt right',
-  Look_Up: '⬆ Look up (hold)', Yawn: '🥱 Yawn',
+  Look_Up: '⬆ Look up (hold)', Yawn: '🥱 Yawn', Microsleep: '😴 Micro-sleep (eyes shut 2 s+)', Nod_Off: '💤 Nodding off',
 };
 const DEFAULT_MAP = {
   Thumb_Up: 'Yes', Thumb_Down: 'No', Closed_Fist: 'I need help', Open_Palm: 'Hello', Pointing_Up: 'Wait, please',
@@ -102,8 +103,9 @@ const S = {
   sentence: [], map: { ...DEFAULT_MAP, ...store.get('map', {}) }, custom: store.get('custom', []),
   rec: null, events: [], stress: 0, drowsy: 0, attn: 0,
   scene: { two: null, combos: [] }, motion: motionTracker(), recent: {}, readEma: {}, read: [], micro: [], microSt: {}, smileType: '', mixed: [],
+  alert: null, alertHist: [], lidDroop: 0, gazeHist: [], nodOffs: [], microsleeps: [],
   src: null, look: null, lower: 'none', glasses: false, lastLook: 0, light: { L: 128, boost: 1 },
-  set: { lowLight: store.get('lowLight', true), cover: store.get('cover', 'auto'), glassesSet: store.get('glassesSet', 'auto'),
+  set: { alarm: store.get('alarm', false), lowLight: store.get('lowLight', true), cover: store.get('cover', 'auto'), glassesSet: store.get('glassesSet', 'auto'),
          hold: store.get('hold', 900), strict: store.get('strict', 0.9), rate: store.get('rate', 0.95), voice: store.get('voice', ''),
          typing: true, eyeCmd: true, auto: false, mesh: true, handsDraw: true, mirror: true },
 };
@@ -264,7 +266,7 @@ function frame(fr, gr, t, live) {
   analyzeFace(face, t, dt, live);
   analyzeHands(hands, t, live);
   analyzeScene(face, t, live);
-  if (!live || t - (S.lastRead || 0) > 150) { S.lastRead = t; readMind(t, live); }
+  if (!live || t - (S.lastRead || 0) > 150) { S.lastRead = t; alertStep(t, live); readMind(t, live); }
   render(face, hands);
   if (!live || t - (S.lastUI || 0) > 80) { S.lastUI = t; updateUI(t); }
 }
@@ -348,8 +350,25 @@ function measureLook(src, lm) {
   // glasses: a dark/bright bar across the nose bridge between the eyes (a mask's top edge can mimic it, so be stricter then)
   const bridge = profileBand(img, P(168), lerpP(P(168), P(6), .6));
   const glasses = clamp((bridge.dark - (mask > .5 ? .55 : .22)) / .2);
-  return { beard: hairy(chin), moustache: hairy(moustache), mask, glasses, skinL: skin.L,
-    raw: { skin, moustache, chin, nose, lip, bridge, rel: { nose: rel(nose), chin: rel(chin) } } };
+  // under-eye darkness vs mid-cheek, sampled straight "down the face" from each lower lid
+  const dn = (() => { const dx = (P(152).x - P(10).x) * img.w, dy = (P(152).y - P(10).y) * img.h, l = Math.hypot(dx, dy) || 1; return { x: dx / l, y: dy / l }; })();
+  const eyeW = Math.hypot((P(133).x - P(33).x) * img.w, (P(133).y - P(33).y) * img.h);
+  const at = (i, k) => ({ x: P(i).x + dn.x * k * eyeW / img.w, y: P(i).y + dn.y * k * eyeW / img.h });
+  const rr = Math.max(1, Math.round(eyeW * .1));
+  const under = avgP([at(145, .32), at(374, .32)].map(p => patch(img, p, rr)));
+  const cheek = avgP([at(145, 1.15), at(374, 1.15)].map(p => patch(img, p, rr)));
+  // upper-lid / crease reference, the same distance above the eye
+  const upper = avgP([at(159, -.3), at(386, -.3)].map(p => patch(img, p, rr)));
+  // Overhead light shadows a deep-set eye above AND below; dark circles darken only below the eye.
+  // So: under-eye darker than the cheek, and not matched by a shadow over the upper lid.
+  const uR = under.L / (cheek.L + 1), dUp = (upper.L - under.L) / (cheek.L + 1);
+  const dark = clamp((.85 - uR) / .2) * clamp((dUp + .15) / .2) * (1 - mask);
+  // sclera between iris and eye corners; only trusted when it is actually bright (not lids or lashes)
+  const scl = [lerpP(P(468), P(33), .6), lerpP(P(468), P(133), .6), lerpP(P(473), P(263), .6), lerpP(P(473), P(362), .6)].map(p => patch(img, p, 1));
+  const white = scl.filter(s => s.L > skin.L * .95);
+  const red = white.length >= 2 ? clamp((white.reduce((s, w) => s + w.cr, 0) / white.length - .7 * Math.max(0, skin.cr) - 2) / 8) : 0;
+  return { beard: hairy(chin), moustache: hairy(moustache), mask, glasses, skinL: skin.L, dark, red,
+    raw: { skin, moustache, chin, nose, lip, bridge, under, cheek, upper, scl: scl.map(s => [Math.round(s.L), Math.round(s.cr)]), rel: { nose: rel(nose), chin: rel(chin) } } };
 }
 function applyLookMode() {
   const L = S.look || { mask: 0, beard: 0, moustache: 0, glasses: 0 };
@@ -364,7 +383,7 @@ function updateLook(face, t, live) {
   S.lastLook = t;
   const m = measureLook(S.src, face.lm); if (!m) return;
   if (!S.look || !live) S.look = m;
-  else for (const k of ['beard', 'moustache', 'mask', 'glasses', 'skinL']) S.look[k] += .35 * (m[k] - S.look[k]);
+  else for (const k of ['beard', 'moustache', 'mask', 'glasses', 'skinL', 'dark', 'red']) S.look[k] += .35 * (m[k] - S.look[k]);
   S.look.raw = m.raw;
   // brightness: boost toward a comfortable face luminance (measured on the un-boosted frame)
   if (live) {
@@ -512,6 +531,43 @@ function microStep(raw, t) {
   }
 }
 
+/* ---- alertness & sleep: gather measurements, score them in alertness.js */
+function alertStep(t, live) {
+  if (!S.face) return;
+  const within = (arr, ms) => arr.filter(x => t - x < ms).length;
+  const durs = (S.eye.durs || []).filter(d => t - d.t < 60000 && d.dur < 2000);
+  const g = S.gazeHist, gm = k => g.reduce((s, x) => s + x[k], 0) / (g.length || 1);
+  const gsd = g.length > 20 ? Math.sqrt(g.reduce((s, x) => s + (x[1] - gm(1)) ** 2 + (x[2] - gm(2)) ** 2, 0) / g.length) : 1;
+  const H = S.stressHist, speed = H.length ? H.reduce((s, h) => s + h.speed, 0) / H.length : 0;
+  const yawningNow = act('jawOpen') > .5 && act2('eyeSquint') + act2('eyeBlink') > .5 && act2('mouthSmile') < .3;
+  const photoDroop = clamp((act2('eyeBlink') - .2) / .35); // single photo: can't tell a blink from droop, so modest
+  const L = S.look || {};
+  const m = {
+    live, observedSec: live && S.camStart ? (t - S.camStart) / 1000 : 0,
+    perclos: S.perclos || 0, meanBlinkMs: durs.length ? durs.reduce((s, d) => s + d.dur, 0) / durs.length : 130,
+    longBlinks2m: within(S.longBlinks, 120000), yawns5m: within(S.yawns, 300000), nodOffs5m: within(S.nodOffs, 300000), microsleeps5m: within(S.microsleeps, 300000),
+    droop: live ? clamp((S.lidDroop - .12) / .4) : photoDroop, droopKnown: live && S.calibrated,
+    stare: live && S.eye.state === 'open' ? clamp((.03 - gsd) / .02) * clamp((12 - blinkRate()) / 8) : 0,
+    dark: L.dark || 0, red: L.red || 0, mouthDroop: S.lower === 'mask' ? 0 : clamp((act2('mouthFrown') - .1) / .3) * (1 - S.emo.sad),
+    yawningNow, movement: clamp(speed / 25), arousal: S.emo.happy + S.emo.surprised,
+  };
+  S.alertM = m;
+  S.alert = scoreAlertness(m);
+  S.drowsy = 100 - S.alert.score;
+  if (live && t - (S.alertHist.at(-1)?.t || 0) > 2000) { S.alertHist.push({ t, s: S.alert.score }); while (S.alertHist.length > 300) S.alertHist.shift(); }
+}
+function wakeAlarm(why) {
+  if (!S.set.alarm) return;
+  const st = $('#stage'); st.classList.add('alarm'); setTimeout(() => st.classList.remove('alarm'), 1600);
+  try {
+    const ac = new AudioContext(), o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sawtooth'; o.connect(g); g.connect(ac.destination); g.gain.value = .12;
+    for (let i = 0; i < 8; i++) o.frequency.setValueAtTime(i % 2 ? 520 : 980, ac.currentTime + i * .15);
+    o.start(); o.stop(ac.currentTime + 1.2);
+  } catch {}
+  speak('Wake up! ' + why + ' detected.');
+}
+
 /* ---- the mentalist read: fuse every cue into likely states, with reasons and a response hint */
 function readMind(t, live) {
   const cues = {};
@@ -526,7 +582,7 @@ function readMind(t, live) {
     cue('gazeSide', (Math.abs(g.x) - .22) / .3, 'Looking away to the side');
     cue('gazeDown', (-g.y - .3) / .3, 'Eyes lowered');
     const br = blinkRate(); cue('blinkFast', (br - 24) / 16, `Blinking fast (${Math.round(br)}/min vs ~15 normal)`);
-    cue('drowsy', (S.drowsy - 25) / 50, 'Eyelids heavy, long closures or yawns');
+    cue('drowsy', (S.drowsy - 25) / 50, S.alert?.reasons[0] || 'Eyelids heavy, long closures or yawns');
     cue('stressHigh', (S.stress - 35) / 35, `Several stress signs together (score ${Math.round(S.stress)})`);
     if (S.lower !== 'mask') {
       cue('lipPress', (act2('mouthPress') * 1.5 - .35) / .4, 'Lips pressed together');
@@ -577,7 +633,10 @@ function eyeStep(bs, t) {
   const E = S.eye;
   const bL = act('eyeBlinkLeft'), bR = act('eyeBlinkRight');
   // lenses and frames soften the lid signal, so glasses wearers get slightly lower thresholds
-  const CLOSE = S.glasses ? .44 : .5, OPEN = S.glasses ? .28 : .32;
+  // resting lid level: follows the lids down fast and up slowly, so heavy, sleepy lids still count as 'open'
+  const lidNow = (bL + bR) / 2;
+  S.lidRest = S.lidRest == null ? lidNow : S.lidRest + (lidNow < S.lidRest ? .2 : .002) * (lidNow - S.lidRest);
+  const CLOSE = Math.min(.85, Math.max(S.glasses ? .44 : .5, S.lidRest + .3)), OPEN = Math.min(.7, Math.max(S.glasses ? .28 : .32, S.lidRest + .1));
   let st;
   if (bL > CLOSE && bR > CLOSE) st = 'closed';
   else if (bL > CLOSE && bR < OPEN && bL - bR > .35) st = 'winkL';
@@ -590,7 +649,9 @@ function eyeStep(bs, t) {
     const dur = t - E.ep.start, ep = E.ep; E.ep = null;
     if (ep.both && dur >= 50) {
       E.blinkTotal++; E.blinks.push(t); E.lastBlinkDur = dur;
-      if (dur >= 1000) { fire('Long_Blink', t); S.longBlinks.push(t); }
+      E.durs = (E.durs || []).filter(d => t - d.t < 120000); E.durs.push({ t, dur });
+      if (dur >= 1000 && dur < 2000 && !ep.micro) { fire('Long_Blink', t); S.longBlinks.push(t); }
+      else if (dur >= 2000) S.longBlinks.push(t);
       else if (dur < 600) {
         if (t - E.lastBlinkEnd < 650) { fire('Double_Blink', t); E.lastBlinkEnd = -1e9; }
         else E.lastBlinkEnd = t;
@@ -600,6 +661,11 @@ function eyeStep(bs, t) {
       else if (ep.R && !ep.L) fire('Wink_Right', t);
     }
   }
+  // micro-sleep: both eyes shut for 2 s or more (a deliberate long blink is 1–2 s)
+  if (E.ep && E.ep.both && !E.ep.micro && st === 'closed' && t - E.ep.start >= 2000) { E.ep.micro = true; S.microsleeps.push(t); fire('Microsleep', t); wakeAlarm('Micro-sleep'); }
+  // sustained upper-lid droop between blinks, relative to this person's calibrated resting lids
+  S.lidDroop = S.lidRest;
+  S.gazeHist.push([t, S.gaze.x, S.gaze.y]); while (S.gazeHist.length && t - S.gazeHist[0][0] > 10000) S.gazeHist.shift();
   E.state = st;
   E.closedHist.push([t, (bL + bR) / 2 > .65 ? 1 : 0]);
   while (E.closedHist.length && t - E.closedHist[0][0] > 30000) E.closedHist.shift();
@@ -647,6 +713,10 @@ function headStep(p, t) {
   }
   if (Hd.yawEx.revs.length >= 2 && t - Hd.lastShake > 1500 && range('yaw') > range('pitch') * 1.3 && range('yaw') > 12) {
     Hd.lastShake = t; Hd.yawEx.revs = []; fire('Shake', t);
+  }
+  const past = Hd.hist.find(h => t - h.t <= 800);
+  if (past && past.pitch - p.pitch > 14 && act2('eyeBlink') > .3 && t - (Hd.lastNodOff || -1e9) > 4000) {
+    Hd.lastNodOff = t; S.nodOffs.push(t); fire('Nod_Off', t); wakeAlarm('Nodding off');
   }
   const tilt = p.roll > 16 ? 1 : p.roll < -16 ? -1 : 0;
   if (tilt !== Hd.tiltOn) { Hd.tiltOn = tilt; if (tilt) fire(tilt > 0 ? 'Tilt_Left' : 'Tilt_Right', t); }
@@ -698,7 +768,7 @@ function computeIndicators(t) {
   const cl = S.eye.closedHist, perclos = cl.length ? cl.reduce((s, c) => s + c[1], 0) / cl.length : 0;
   const recentY = S.yawns.filter(y => t - y < 120000).length, recentL = S.longBlinks.filter(y => t - y < 120000).length;
   S.perclos = perclos;
-  S.drowsy = 100 * clamp(N(perclos, .2) * .6 + recentY * .15 + recentL * .08);
+  if (!S.alert) S.drowsy = 100 * clamp(N(perclos, .2) * .6 + recentY * .15 + recentL * .08);
   S.attn = 100 * avg('facing');
 }
 
@@ -1065,7 +1135,7 @@ function updateUI(t) {
     const a = Math.round(S.attn), al = a > 80 ? ['Focused', 'var(--teal)'] : a > 50 ? ['Partly', 'var(--amber)'] : ['Looking away', 'var(--rose)'];
     $('#attnV').textContent = a + '%'; $('#attnL').textContent = al[0]; $('#attnL').style.color = al[1];
   }
-  drawCircumplex(); drawTimeline(); renderMind();
+  drawCircumplex(); drawTimeline(); renderMind(); renderAlert();
   const tot = Object.values(S.sessionCounts).reduce((a, b) => a + b, 0);
   if (tot) $('#sessionSum').textContent = 'Session: ' + Object.entries(S.sessionCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${EMO[k].icon} ${Math.round(v / tot * 100)}%`).join(' · ');
 }
@@ -1143,6 +1213,41 @@ function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ------------------------------------------------------------------ settings UI */
+function renderAlert() {
+  const A = S.alert, on = S.face && A;
+  $('#nEnergy').textContent = on ? A.icon + ' ' + A.level : '—';
+  $('#nEnergyS').textContent = on ? 'alertness ' + A.score + '/100' + (A.measuring ? ' · measuring…' : '') : '';
+  $('#aIcon').textContent = on ? A.icon : '·';
+  $('#aScore').textContent = on ? A.score : '–';
+  $('#aLevel').textContent = on ? A.level + (A.measuring ? ' (still measuring, give it ~20 s)' : '') : 'Waiting for a face…';
+  $('#aAdvice').textContent = on ? A.advice : '';
+  $('#aBar').style.width = on ? A.score + '%' : '0';
+  $('#aBar').style.background = !on ? '' : A.score >= 72 ? 'var(--teal)' : A.score >= 58 ? 'var(--lime)' : A.score >= 42 ? 'var(--amber)' : 'var(--rose)';
+  $('#aWhy').innerHTML = on && A.reasons.length ? A.reasons.map(r => '<div>' + esc(r) + '</div>').join('') : on ? '<div>No drowsiness signs right now.</div>' : '';
+  $('#aRest').textContent = on ? A.restVerdict[0] + ' ' + A.restVerdict[1] : '—';
+  $('#aRestWhy').innerHTML = on ? (A.restReasons.length ? A.restReasons : ['Eyelids open normally, no dark circles or redness detected']).map(r => '<div>' + esc(r) + '</div>').join('') : '';
+  const m = S.alertM || {}, lv = on && m.live;
+  const sig = [
+    ['Eyes-closed time (PERCLOS)', m.perclos / .3, on ? Math.round((m.perclos || 0) * 100) + '%' : '–'],
+    ['Average blink length', ((m.meanBlinkMs || 0) - 100) / 400, lv ? Math.round(m.meanBlinkMs) + ' ms' : '–'],
+    ['Long closures (2 min)', (m.longBlinks2m || 0) / 5, lv ? m.longBlinks2m : '–'],
+    ['Yawns (5 min)', (m.yawns5m || 0) / 4, lv ? m.yawns5m : '–'],
+    ['Eyelid droop', m.droop, on ? Math.round((m.droop || 0) * 100) + '%' : '–'],
+    ['Dark circles', m.dark, on ? Math.round((m.dark || 0) * 100) + '%' : '–'],
+    ['Red eyes', m.red, on ? Math.round((m.red || 0) * 100) + '%' : '–'],
+    ['Glazed stare', m.stare, lv ? Math.round((m.stare || 0) * 100) + '%' : '–'],
+    ['Nod-offs / micro-sleeps (5 min)', ((m.nodOffs5m || 0) + (m.microsleeps5m || 0)) / 2, lv ? m.nodOffs5m + ' / ' + m.microsleeps5m : '–'],
+  ];
+  $('#aSigns').innerHTML = sig.map(([k, v, txt]) => '<div class="bar"><span>' + k + '</span><div class="track"><div class="fill" style="width:' + (on ? clamp(v || 0) * 100 : 0) + '%;background:var(--sky)"></div></div><span class="pct">' + txt + '</span></div>').join('');
+  // alertness over the session
+  const c = $('#aHist'), w = c.clientWidth, h = c.clientHeight; if (!w) return;
+  const dpr = devicePixelRatio || 1; if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+  for (const [lvl, col] of [[72, '#2dd4bf55'], [42, '#f5b45455']]) { x.fillStyle = col; x.fillRect(0, h - lvl / 100 * h, w, 1); }
+  const Hh = S.alertHist; if (Hh.length < 2) return;
+  x.beginPath(); Hh.forEach((p, i) => { const px = i / (Hh.length - 1) * w, py = h - p.s / 100 * h; i ? x.lineTo(px, py) : x.moveTo(px, py); });
+  x.strokeStyle = '#60a5fa'; x.lineWidth = 2; x.stroke();
+}
 function renderMind() {
   const r = S.read, top = r[0], any = S.face || S.hands.length;
   $('#mIcon').textContent = top && any ? top.icon : '·';
@@ -1188,6 +1293,7 @@ function summary() {
     hands: S.hands.map(h => ({ side: h.side, label: h.label, src: h.src, model: h.model.categoryName, fingers: h.f, palmUp: h.palmUp,
       touch: Object.entries(h.touch || {}).filter(([, c]) => c.s > .3).map(([z, c]) => `${z}:${c.part}:${c.s.toFixed(2)}`).join(' ') })),
     two: S.scene.two, combos: S.scene.combos.map(c => c.id + ' ' + c.conf.toFixed(2)),
+    alert: S.alert && { score: S.alert.score, level: S.alert.level, rest: S.alert.restVerdict[1], rr: S.alert.restReasons, why: S.alert.reasons, dark: +S.alertM.dark.toFixed(2), red: +S.alertM.red.toFixed(2), droop: +S.alertM.droop.toFixed(2) },
     read: S.read.map(r => `${r.name} ${Math.round(r.conf * 100)}%`), mixed: S.mixed, smile: S.smileType,
   };
 }
@@ -1228,6 +1334,8 @@ function wire() {
   const sel = (id, key) => { const el = $(id); el.value = S.set[key]; el.onchange = () => { S.set[key] = el.value; store.set(key, el.value); applyLookMode(); updateUI(now()); }; };
   sel('#sCover', 'cover'); sel('#sGlasses', 'glassesSet');
   $('#sLow').checked = S.set.lowLight;
+  $('#aAlarm').checked = S.set.alarm;
+  $('#aAlarm').onchange = e => { S.set.alarm = e.target.checked; store.set('alarm', S.set.alarm); if (S.set.alarm) toast('Wake-up alarm on'); };
   $('#sLow').onchange = e => { S.set.lowLight = e.target.checked; store.set('lowLight', S.set.lowLight); if (!S.set.lowLight) S.light.boost = 1; };
   $('#sVoice').onchange =e => { S.set.voice = e.target.value; store.set('voice', S.set.voice); };
   $('#mapTable').oninput = e => { const k = e.target.dataset.map; if (!k) return; S.map[k] = e.target.value; store.set('map', S.map); };
@@ -1246,4 +1354,4 @@ function wire() {
 wire();
 
 // Test/automation hook
-window.__BHAAV = { S, readMind, analyzeScene, holdStep, microStep, analyzePhoto, summary, fire, classifyHand, shapeGesture, fingerStates, eyeStep, headStep, emotionScores, act, frame, startCalibration, finishCalibration };
+window.__BHAAV = { S, alertStep, temporalStep, computeIndicators, scoreAlertness, readMind, analyzeScene, holdStep, microStep, analyzePhoto, summary, fire, classifyHand, shapeGesture, fingerStates, eyeStep, headStep, emotionScores, act, frame, startCalibration, finishCalibration };

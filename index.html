@@ -53,6 +53,15 @@ main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr);gap:1
 .stage .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .stage .calib{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,8,11,.45);font-size:20px;font-weight:600;text-align:center;pointer-events:none}
 .stage .calib.show{display:flex}
+.stage.alarm{animation:alarm .4s linear 4}
+@keyframes alarm{50%{box-shadow:inset 0 0 0 6px var(--rose),0 0 30px var(--rose)}}
+.alert-top{display:flex;gap:12px;align-items:center}
+.alert-top>b{font-size:46px;line-height:1}
+.alert-top strong{font-size:19px}
+.alert-top .big{font-size:28px;font-weight:700;font-family:var(--mono)}
+.abar{height:10px;background:#0a1017;border-radius:6px;overflow:hidden;border:1px solid #1a2532;margin-top:6px}
+.abar .fill{height:100%;width:0;border-radius:6px;transition:width .3s}
+#aSigns .bar{grid-template-columns:minmax(120px,46%) 1fr 64px}
 
 .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
 .btn{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;transition:.15s;display:inline-flex;align-items:center;gap:7px}
@@ -249,6 +258,7 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <div class="tile"><div class="k">Eyes</div><div class="v" id="nEye">—</div><div class="s" id="nEyeS"></div></div>
         <div class="tile"><div class="k">Head</div><div class="v" id="nHead">—</div><div class="s" id="nHeadS"></div></div>
         <div class="tile"><div class="k">Hands</div><div class="v" id="nHand">—</div><div class="s" id="nHandS"></div></div>
+        <div class="tile"><div class="k">Energy</div><div class="v" id="nEnergy">—</div><div class="s" id="nEnergyS"></div></div>
       </div>
     </div>
 
@@ -266,6 +276,7 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
       <div class="tabs" id="tabs">
         <button data-p="emo" class="act">Emotions</button>
         <button data-p="eyes">Eyes</button>
+        <button data-p="alert">Sleep &amp; energy</button>
         <button data-p="face">Face &amp; head</button>
         <button data-p="hands">Hand signs</button>
         <button data-p="log">Log</button>
@@ -309,6 +320,29 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <h3 style="margin-top:14px">Eye gestures detected</h3>
         <div class="feed" id="eyeFeed"></div>
         <p class="sub">Detects: blink · double blink · long blink (eyes shut ≥ 1 s) · left / right wink · looking left, right, up or down (held ½ s) · wide eyes · squint. Normal is about 12–20 blinks a minute. A much higher rate can go with stress or dry eyes, and long closures can mean tiredness.</p>
+      </div>
+
+      <div class="pane" id="p-alert">
+        <div class="alert-top">
+          <b id="aIcon">·</b>
+          <div style="flex:1;min-width:0">
+            <div class="row between"><strong id="aLevel">Waiting for a face…</strong><span class="big" id="aScore">–</span></div>
+            <div class="track abar"><div class="fill" id="aBar"></div></div>
+            <div class="mtip" id="aAdvice"></div>
+          </div>
+        </div>
+        <div class="mwhy" id="aWhy"></div>
+        <div class="gauge" style="margin-top:12px">
+          <div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Did they sleep well? (from the face)</div>
+          <div class="lvl" id="aRest" style="font-size:17px;margin-top:4px">—</div>
+          <div class="mwhy" id="aRestWhy" style="margin-top:6px"></div>
+        </div>
+        <h3 style="margin-top:14px">Signs being measured</h3>
+        <div class="bars minibars" id="aSigns"></div>
+        <h3 style="margin-top:14px">Alertness this session</h3>
+        <canvas class="timeline" id="aHist" style="height:80px"></canvas>
+        <label class="toggle" style="margin-top:12px"><input type="checkbox" id="aAlarm"> 🔔 Wake-up alarm: beep and say "Wake up!" on a micro-sleep or nodding off (e.g. while studying or driving)</label>
+        <p class="sub">Live signs: eyes-closed time (PERCLOS), blink length, long closures, micro-sleeps (eyes shut 2 s+), yawns, head nodding off, and a glazed stare. Face signs that work even on a photo: hanging eyelids, dark circles, red eyes, and drooping mouth corners. <b>Eye shapes differ between people</b>, so press <i>Calibrate neutral</i> while you're fully awake and eyelid droop will be measured against your own eyes. Dark circles can also be genetic, and redness can come from allergies or screens. This is an estimate, not a sleep test. If you're very sleepy most days despite 7–9 hours in bed, talk to a doctor (conditions like sleep apnoea are common and treatable).</p>
       </div>
 
       <div class="pane" id="p-face">
