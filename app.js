@@ -85,8 +85,40 @@ const DEFAULT_MAP = {
   Eye_Rub: 'I am sleepy', Cover_Eyes: "I can't look", Ear_Listen: "I can't hear you", Ears_Cover: 'It is too loud',
   Head_Scratch: "I don't understand", Hand_Heart: 'Thank you from my heart', Point_Self: 'Me?',
 };
-const QUICK = ['Yes', 'No', 'Hello', 'Thank you', 'Please', 'I need help', 'I am in pain', 'I want water', 'I am hungry',
-  'I need the bathroom', 'I am tired', 'I feel cold', 'I feel hot', 'Call my family', 'I am okay', 'Wait, please'];
+// Symbol board (AAC-style): "emoji phrase" lines, "# Heading" lines start a group. Editable in Settings.
+const DEFAULT_QUICK = `# Needs
+💧 I want water
+🍽️ I am hungry
+🚻 I need the bathroom
+💊 I am in pain
+🛏️ I want to rest
+🥶 I feel cold
+🥵 I feel hot
+# Talk
+✅ Yes
+❌ No
+👋 Hello
+🙏 Thank you
+🙂 Please
+⏳ Wait, please
+📞 Call my family
+👌 I am okay
+# Feelings
+😊 I am happy
+😢 I am sad
+😟 I am worried
+😴 I am tired`;
+function parseQuick(src) {
+  const groups = []; let g = null;
+  for (const raw of String(src).split('\n')) {
+    const line = raw.trim(); if (!line) continue;
+    if (line.startsWith('#')) { g = { name: line.replace(/^#+\s*/, ''), items: [] }; groups.push(g); continue; }
+    if (!g) { g = { name: '', items: [] }; groups.push(g); }
+    const m = line.match(/^(\p{Extended_Pictographic}[\p{Extended_Pictographic}\u200d\ufe0f\u20e3\p{M}]*)\s+(.+)$/u);
+    g.items.push(m ? { icon: m[1], text: m[2] } : { icon: '', text: line });
+  }
+  return groups.filter(x => x.items.length);
+}
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -102,12 +134,14 @@ const S = {
   hands: [], hold: { label: null, since: 0, fired: false, handSeen: 0 },
   sentence: [], map: { ...DEFAULT_MAP, ...store.get('map', {}) }, custom: store.get('custom', []),
   rec: null, events: [], stress: 0, drowsy: 0, attn: 0,
+  uiMode: store.get('mode', 'talk'), paused: false, prevTab: 'emo', quick: store.get('quick', DEFAULT_QUICK), issueSeen: {}, signal: null,
   scene: { two: null, combos: [] }, motion: motionTracker(), recent: {}, readEma: {}, read: [], micro: [], microSt: {}, smileType: '', mixed: [],
   alert: null, alertHist: [], lidDroop: 0, gazeHist: [], nodOffs: [], microsleeps: [],
   src: null, look: null, lower: 'none', glasses: false, lastLook: 0, light: { L: 128, boost: 1 },
   set: { alarm: store.get('alarm', false), lowLight: store.get('lowLight', true), cover: store.get('cover', 'auto'), glassesSet: store.get('glassesSet', 'auto'),
          hold: store.get('hold', 900), strict: store.get('strict', 0.9), rate: store.get('rate', 0.95), voice: store.get('voice', ''),
-         typing: true, eyeCmd: true, auto: false, mesh: true, handsDraw: true, mirror: true },
+         typing: true, eyeCmd: true, auto: false, mesh: true, handsDraw: true, mirror: true,
+         privacy: store.get('privacy', false), theme: store.get('theme', 'system'), text: store.get('text', 1), contrast: store.get('contrast', false) },
 };
 
 /* ------------------------------------------------------------------ models */
@@ -138,7 +172,7 @@ async function loadImageModels() {
   gestI = await GestureRecognizer.createFromOptions(fileset, { baseOptions: { modelAssetPath: GEST_MODEL, delegate: 'CPU' }, runningMode: 'IMAGE', numHands: 2, minHandDetectionConfidence: .35, minHandPresenceConfidence: .35 });
   pill('models: ready', 'ok');
 }
-function pill(t, cls) { const p = $('#modelPill'); p.textContent = t; p.className = 'pill ' + (cls || ''); }
+function pill(t, cls) { const p = $('#modelPill'); p.textContent = t; p.className = 'chip-s model ' + (cls || ''); }
 
 /* ------------------------------------------------------------------ camera */
 const video = $('#video'), overlay = $('#overlay'), photo = $('#photo'), stage = $('#stage');
@@ -169,6 +203,7 @@ async function startCamera(deviceId) {
   $('#camBtn').style.display = ''; $('#photoBtn2').style.display = '';
   fillCameraList();
   if (!S.calibrated) startCalibration();
+  renderStatus();
   requestAnimationFrame(loop);
 }
 function stopStream() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
@@ -178,6 +213,7 @@ function stopCamera() {
   $('#camBtn').style.display = 'none';
   const empty = $('#empty'); empty.style.display = 'flex';
   empty.querySelector('p').innerHTML = 'Camera stopped. Start it again whenever you like.';
+  renderStatus();
 }
 async function fillCameraList() {
   const sel = $('#camSel');
@@ -886,6 +922,7 @@ function analyzeScene(face, t, live) {
 }
 function holdStep(label, t) {
   const H = S.hold;
+  if (S.paused) { H.label = null; H.progress = 0; return; }
   if (S.hands.length) H.handSeen = t;
   if (label !== H.label) {
     // brief tracking dropouts shouldn't reset a hold
@@ -905,8 +942,8 @@ function fire(trigger, t) {
   else { phrase = S.map[trigger] || ''; name = labelName(trigger) !== trigger ? labelName(trigger) : EYE_HEAD[trigger] || trigger; }
   S.recent[trigger] = t;
   const cls = isHand ? 'hand' : /Nod|Shake|Tilt/.test(trigger) ? 'head' : trigger === 'Yawn' ? 'emo' : 'eye';
-  const enabled = isHand ? S.set.typing : S.set.eyeCmd;
-  log(cls, name + (phrase && enabled ? ` → “${phrase}”` : ''));
+  const enabled = (isHand ? S.set.typing : S.set.eyeCmd) && !S.paused;
+  log(cls, name + (phrase && enabled ? ` → “${phrase}”` : phrase && S.paused ? ' (typing paused)' : ''));
   if (!phrase || !enabled) return;
   if (phrase === '[speak]') return speakSentence();
   if (phrase === '[undo]') { S.sentence.pop(); return renderSentence(); }
@@ -919,12 +956,13 @@ function addWord(w) {
 }
 function renderSentence() {
   const el = $('#sentence');
-  el.innerHTML = S.sentence.length ? S.sentence.map(w => `<span class="word">${esc(w)}</span>`).join('') : '<span class="ph">Sentence is empty.</span>';
+  el.innerHTML = S.sentence.length ? S.sentence.map(w => `<span class="word">${esc(w)}</span>`).join('') : '<span class="ph">Hold a sign, nod, blink, or tap a phrase below. Words appear here.</span>';
+  const p = $('#partnerText'); if (p) { p.textContent = S.sentence.length ? S.sentence.join(' · ') : 'Nothing to show yet.'; p.classList.toggle('empty', !S.sentence.length); }
 }
 function speakSentence() {
   if (!S.sentence.length) return;
   const text = S.sentence.join('. ').replace(/\.\./g, '.');
-  speak(text); log('say', '🔊 Spoke: “' + text + '”');
+  speak(text); log('say', '🔊 Spoke: “' + text + '”'); announce('Speaking: ' + text);
 }
 let voices = [];
 function speak(text) {
@@ -1003,7 +1041,7 @@ function drawText(x, y, txt, color = '#fff', size = 22) {
 function render(face, hands) {
   const W = overlay.width, H = overlay.height, sc = W / 1280;
   octx.clearRect(0, 0, W, H);
-  if (face && S.set.mesh) {
+  if (face && (S.set.mesh || S.set.privacy)) {
     const lm = face.lm;
     draw.drawConnectors(lm, FL.FACE_LANDMARKS_TESSELATION, { color: 'rgba(45,212,191,.10)', lineWidth: 1 });
     draw.drawConnectors(lm, FL.FACE_LANDMARKS_FACE_OVAL, { color: 'rgba(45,212,191,.5)', lineWidth: 1.5 * sc });
@@ -1019,7 +1057,7 @@ function render(face, hands) {
   }
   hands.forEach((h, i) => {
     const ch = S.hands[i]; const col = h.side === 'Left' ? '#f5b454' : '#a78bfa';
-    if (S.set.handsDraw) {
+    if (S.set.handsDraw || S.set.privacy) {
       draw.drawConnectors(h.lm, GestureRecognizer.HAND_CONNECTIONS, { color: col, lineWidth: 3 * sc });
       draw.drawLandmarks(h.lm, { color: '#fff', fillColor: col, lineWidth: 1, radius: 3.5 * sc });
     }
@@ -1027,7 +1065,7 @@ function render(face, hands) {
     const x = Math.min(...xs), y = Math.min(...ys);
     if (ch?.label) drawText(x, y - 14 * sc, labelName(ch.label), col, 24 * sc);
     // hold-to-type progress ring
-    if (ch?.label && ch === S.hands.find(q => q.label) && S.hold.progress > 0 && S.set.typing) {
+    if (ch?.label && ch === S.hands.find(q => q.label) && S.hold.progress > 0 && S.set.typing && !S.paused) {
       const cx = h.lm[9].x * W, cy = h.lm[9].y * H, r = 34 * sc;
       octx.lineWidth = 6 * sc; octx.strokeStyle = 'rgba(255,255,255,.15)';
       octx.beginPath(); octx.arc(cx, cy, r, 0, Math.PI * 2); octx.stroke();
@@ -1056,7 +1094,6 @@ function render(face, hands) {
 /* ------------------------------------------------------------------ UI updates */
 function updateUI(t) {
   const hud = [];
-  if (S.mode === 'camera') hud.push(`${Math.round(S.fps)} fps`);
   hud.push(S.face ? 'face ✓' : 'no face'); hud.push(`${S.hands.length} hand${S.hands.length === 1 ? '' : 's'}`);
   if (!S.calibrated && S.mode === 'camera') hud.push('not calibrated');
   if (S.face && S.lower === 'beard') hud.push('🧔 beard mode');
@@ -1135,7 +1172,7 @@ function updateUI(t) {
     const a = Math.round(S.attn), al = a > 80 ? ['Focused', 'var(--teal)'] : a > 50 ? ['Partly', 'var(--amber)'] : ['Looking away', 'var(--rose)'];
     $('#attnV').textContent = a + '%'; $('#attnL').textContent = al[0]; $('#attnL').style.color = al[1];
   }
-  drawCircumplex(); drawTimeline(); renderMind(); renderAlert();
+  drawCircumplex(); drawTimeline(); renderMind(); renderAlert(); renderStatus(); renderNowSign();
   const tot = Object.values(S.sessionCounts).reduce((a, b) => a + b, 0);
   if (tot) $('#sessionSum').textContent = 'Session: ' + Object.entries(S.sessionCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${EMO[k].icon} ${Math.round(v / tot * 100)}%`).join(' · ');
 }
@@ -1173,8 +1210,8 @@ function drawCircumplex() {
   const e = S.emo;
   const val = clamp(e.happy - .8 * (e.sad + e.angry + e.fear) - .7 * e.disgust - .4 * e.contempt + .1 * e.surprised, -1, 1);
   const aro = clamp(.9 * e.surprised + .8 * e.fear + .7 * e.angry + .4 * e.happy + .2 * e.disgust - .5 * e.sad - .4 * e.neutral - S.drowsy / 200, -1, 1);
-  const q = (x, y, t) => `<text x="${x}" y="${y}" fill="#56657a" font-size="10" text-anchor="middle" font-family="Space Grotesk">${t}</text>`;
-  $('#circ').innerHTML = `<circle r="96" fill="#0a1017" stroke="#233142"/><line x1="-96" x2="96" stroke="#233142"/><line y1="-96" y2="96" stroke="#233142"/>
+  const q = (x, y, t) => `<text x="${x}" y="${y}" style="fill:var(--faint)" font-size="10" text-anchor="middle" font-family="Space Grotesk">${t}</text>`;
+  $('#circ').innerHTML = `<circle r="96" style="fill:var(--well);stroke:var(--line)"/><line x1="-96" x2="96" style="stroke:var(--line)"/><line y1="-96" y2="96" style="stroke:var(--line)"/>
     ${q(0, -80, 'energised')}${q(0, 88, 'calm / low')}${q(-62, 4, 'unpleasant')}${q(64, 4, 'pleasant')}
     ${q(-55, -55, 'tense')}${q(55, -55, 'excited')}${q(-55, 62, 'down')}${q(55, 62, 'content')}
     ${S.face ? `<circle cx="${val * 86}" cy="${-aro * 86}" r="9" fill="${EMO_COLOR[S.emoTop]}" stroke="#fff" stroke-width="2"/>` : ''}`;
@@ -1209,7 +1246,8 @@ function log(cls, msg) {
   for (const id of ['#logFeed', '#eyeFeed', '#headFeed']) { const f = $(id); while (f.children.length > 120) f.lastChild.remove(); }
 }
 let toastT;
-function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 1400); }
+function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 1400); announce(msg); }
+function announce(msg) { const el = $('#sr'); if (!el) return; el.textContent = ''; setTimeout(() => { el.textContent = msg; }, 30); }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ------------------------------------------------------------------ settings UI */
@@ -1229,9 +1267,9 @@ function renderAlert() {
   const m = S.alertM || {}, lv = on && m.live;
   const sig = [
     ['Eyes-closed time (PERCLOS)', m.perclos / .3, on ? Math.round((m.perclos || 0) * 100) + '%' : '–'],
-    ['Average blink length', ((m.meanBlinkMs || 0) - 100) / 400, lv ? Math.round(m.meanBlinkMs) + ' ms' : '–'],
-    ['Long closures (2 min)', (m.longBlinks2m || 0) / 5, lv ? m.longBlinks2m : '–'],
-    ['Yawns (5 min)', (m.yawns5m || 0) / 4, lv ? m.yawns5m : '–'],
+    ['Average blink length', lv ? ((m.meanBlinkMs || 0) - 100) / 400 : 0, lv ? Math.round(m.meanBlinkMs) + ' ms' : '–'],
+    ['Long closures (2 min)', lv ? (m.longBlinks2m || 0) / 5 : 0, lv ? m.longBlinks2m : '–'],
+    ['Yawns (5 min)', lv ? (m.yawns5m || 0) / 4 : 0, lv ? m.yawns5m : '–'],
     ['Eyelid droop', m.droop, on ? Math.round((m.droop || 0) * 100) + '%' : '–'],
     ['Dark circles', m.dark, on ? Math.round((m.dark || 0) * 100) + '%' : '–'],
     ['Red eyes', m.red, on ? Math.round((m.red || 0) * 100) + '%' : '–'],
@@ -1267,6 +1305,172 @@ function renderMind() {
   $('#mSmile').textContent = S.smileType === 'genuine' ? '😊 Genuine (Duchenne) smile' : S.smileType === 'polite' ? '🙂 Polite / social smile' : S.smileType ? '😊 Smiling eyes' : '';
   const m = S.micro.filter(x => now() - x.t < 20000);
   $('#mMicro').textContent = m.length ? '⚡ Micro-expressions: ' + m.map(x => `${EMO[x.k].icon} ${x.dur} ms`).join(', ') : '';
+}
+/* ------------------------------------------------------------------ interface layer */
+// Live setup coach: the things that silently break expression readers (light, distance, angle) said in plain words.
+function signalCheck() {
+  if (S.mode !== 'camera' || !S.running) return null;
+  const issues = [], fg = S.scene && S.scene.fg;
+  const occluded = !S.face && S.hands.length && S.lastFgT && now() - S.lastFgT < 4000; // a hand over the face is a gesture, not a setup problem
+  if (!S.face && !occluded) issues.push(['🙂', 'Face not found', 'Look at the screen with your whole face in view.']);
+  else if (S.face && fg) {
+    const W = overlay.width, H = overlay.height, frac = fg.fw / W, cx = fg.centre.x / W, cy = fg.centre.y / H;
+    if (S.light.L < 55) issues.push(['💡', 'Too dark', 'Add light in front of you, not behind you.']);
+    if (frac < .12) issues.push(['📏', 'Too far away', 'Move a little closer to the camera.']);
+    else if (frac > .62) issues.push(['📏', 'Too close', 'Lean back so your chin and hands fit in view.']);
+    if (cx < .2 || cx > .8 || cy < .15 || cy > .85) issues.push(['🎯', 'Off-centre', 'Move so your face is near the middle of the picture.']);
+    if (S.pose && Math.abs(S.pose.yaw) > 30) issues.push(['↩️', 'Turned away', 'Face the camera for the most accurate reading.']);
+  }
+  return { score: S.face || occluded ? Math.max(1, 4 - issues.length) : 0, issues };
+}
+function renderStatus() {
+  const cs = $('#camState'), live = S.mode === 'camera' && S.running;
+  cs.classList.toggle('live', live);
+  cs.querySelector('.lbl').textContent = live ? `Live · ${Math.round(S.fps)} fps` : S.mode === 'photo' ? 'Photo' : 'Camera off';
+  const q = signalCheck(), t = now();
+  S.signal = q;
+  const bars = $('#signalBars'), n = q ? q.score : 0;
+  bars.querySelectorAll('i').forEach((b, i) => b.classList.toggle('on', i < n));
+  bars.classList.toggle('warn', !!q && n < 3);
+  $('#signal').title = !q ? 'Signal quality appears when the camera is on' : q.issues.length ? 'To improve: ' + q.issues.map(x => x[1].toLowerCase()).join(', ') : 'Good signal: face, light and distance all OK';
+  // only coach on problems that persist for a second, so the tip doesn't flicker
+  const seen = S.issueSeen, keys = new Set((q?.issues || []).map(x => x[1]));
+  for (const k of Object.keys(seen)) if (!keys.has(k)) delete seen[k];
+  for (const k of keys) if (!seen[k]) seen[k] = t;
+  const top = (q?.issues || []).find(x => t - seen[x[1]] > 1000);
+  const c = $('#coach');
+  c.hidden = !top || !!S.calib;
+  if (top) { $('#coachIcon').textContent = top[0]; $('#coachTitle').textContent = top[1]; $('#coachText').textContent = top[2]; }
+  $('#pausedMsg').hidden = !S.paused;
+}
+// What is being recognised right now, and how close it is to typing (the on-stage ring, as text + bar)
+function renderNowSign() {
+  const H = S.hold, el = $('#nowSign');
+  el.classList.toggle('paused', S.paused);
+  const set = (icon, name, sub, pct) => { $('#nsIcon').textContent = icon; $('#nsName').textContent = name; $('#nsPhrase').textContent = sub; $('#nsBar').style.width = pct + '%'; };
+  if (S.paused) return set('⏸', 'Typing paused', 'Signs are still read, but nothing is typed. Press P or ⏸ to resume.', 0);
+  // on a still photo nothing is typed, but still show what was recognised and what it would say
+  const photoLabel = S.mode === 'photo' ? (S.scene.two || (S.scene.combos[0]?.conf > .5 ? S.scene.combos[0].id : null) || S.hands.find(h => h.label)?.label) : null;
+  const lab = H.label || photoLabel;
+  if (!lab) return set('✋', 'Show a sign', S.mode === 'camera' ? 'Hold it still for a moment to type its phrase' : 'Start the camera, then hold a sign still to type', 0);
+  const name = labelName(lab), sp = name.indexOf(' ');
+  const icon = sp > 0 ? name.slice(0, sp) : '✋', label = sp > 0 ? name.slice(sp + 1) : name;
+  const phrase = lab.startsWith('custom:') ? S.custom.find(c => 'custom:' + c.id === lab)?.phrase : S.map[lab];
+  const off = (lab in HAND_SIGNS || lab in TWO_HAND || lab in COMBOS || lab.startsWith('custom:')) && !S.set.typing;
+  if (!H.label) return set(icon, label, phrase ? `Would type “${phrase}” (hold it live on camera to type)` : 'Recognised in the photo', 0);
+  set(icon, label, off ? 'Recognised. Typing from signs is off (Settings).' : !phrase ? 'Recognised. It has no phrase yet (set one in Settings).'
+    : H.fired ? `Typed “${phrase}”. Change sign to type again.` : `Hold to type “${phrase}”`, H.fired ? 100 : Math.round(H.progress * 100));
+}
+function renderCheat() {
+  const keys = ['Thumb_Up', 'Thumb_Down', 'Closed_Fist', 'Victory', 'Open_Palm', 'Heart_Hands', 'Nod', 'Shake', 'Long_Blink', 'Wink_Right'];
+  const how = { Nod: 'nod', Shake: 'shake head', Long_Blink: 'close eyes 1 s', Wink_Right: 'right wink' };
+  const nice = { '[speak]': 'speak sentence', '[undo]': 'undo', '[clear]': 'clear' };
+  $('#cheat').innerHTML = keys.filter(k => S.map[k]).map(k => {
+    const n = labelName(k) !== k ? labelName(k) : EYE_HEAD[k] || k, icon = n.split(' ')[0];
+    return `<span>${icon}${how[k] ? ' ' + how[k] : ''} → <b>${esc(nice[S.map[k]] || S.map[k])}</b></span>`;
+  }).join('');
+}
+function renderPhrases() {
+  $('#phrases').innerHTML = '<button class="sos" data-sos>🆘 HELP · call someone now</button>' + parseQuick(S.quick).map(g =>
+    (g.name ? `<div class="gh">${esc(g.name)}</div>` : '') + g.items.map(it => `<button data-q="${esc(it.text)}">${it.icon ? `<i aria-hidden="true">${it.icon}</i>` : ''}<span>${esc(it.text)}</span></button>`).join('')).join('');
+}
+function activateTab(p) {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('act', x.dataset.p === p));
+  document.querySelectorAll('.pane').forEach(x => x.classList.toggle('act', x.id === 'p-' + p));
+}
+// Three audiences, three layouts: the person talking, the person reading, the person checking their energy.
+function setMode(m) {
+  if (!['talk', 'read', 'rest'].includes(m)) m = 'talk';
+  const prev = S.uiMode;
+  S.uiMode = m; store.set('mode', m); document.body.dataset.mode = m;
+  const L = $('#colL'), R = $('#colR'), put = (col, ids) => ids.forEach(id => col.appendChild($(id)));
+  if (m === 'talk') { put(L, ['#stageCard', '#nowCard']); put(R, ['#speakCard', '#mindCard', '#tabsCard']); }
+  if (m === 'read') { put(L, ['#stageCard', '#nowCard', '#speakCard']); put(R, ['#mindCard', '#tabsCard']); }
+  if (m === 'rest') { put(L, ['#stageCard', '#nowCard', '#speakCard']); put(R, ['#tabsCard', '#mindCard']); }
+  const cur = document.querySelector('#tabs button.act')?.dataset.p;
+  if (m === 'rest') { if (cur && cur !== 'alert') S.prevTab = cur; activateTab('alert'); }
+  else if (prev === 'rest' && m !== 'rest') activateTab(S.prevTab || 'emo');
+  document.querySelectorAll('#modeSwitch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
+  if (S.running && video.paused) video.play().catch(() => {});
+  updateUI(now());
+}
+function applyDisplay() {
+  const r = document.documentElement;
+  if (S.set.theme === 'system') r.removeAttribute('data-theme'); else r.dataset.theme = S.set.theme;
+  if (S.set.contrast) r.dataset.contrast = 'high'; else r.removeAttribute('data-contrast');
+  r.style.setProperty('--ts', S.set.text);
+}
+function setPaused(on, quiet) {
+  S.paused = on;
+  const b = $('#pauseBtn'); b.setAttribute('aria-pressed', String(on)); b.textContent = on ? '▶' : '⏸';
+  b.title = on ? 'Resume typing (P)' : 'Pause typing (P)'; b.setAttribute('aria-label', on ? 'Resume typing' : 'Pause typing');
+  $('#pausedMsg').hidden = !on;
+  if (!quiet) toast(on ? 'Typing paused' : 'Typing resumed');
+  renderNowSign();
+}
+function setPrivacy(on, quiet) {
+  S.set.privacy = on; store.set('privacy', on);
+  stage.classList.toggle('privacy', on); $('#optPrivacy').checked = on; $('#privBtn').setAttribute('aria-pressed', String(on));
+  if (!quiet) toast(on ? 'Privacy view on: video hidden' : 'Privacy view off');
+}
+function openPartner(on) { $('#partner').hidden = !on; if (on) { renderSentence(); $('#partnerClose').focus(); } }
+function openDrawer(on) { $('#drawer').hidden = !on; $('#scrim').hidden = !on; if (on) $('#drawerClose').focus(); }
+let obStep = 0;
+function renderOb() {
+  document.querySelectorAll('#onboard [data-step]').forEach(s => { s.hidden = +s.dataset.step !== obStep; });
+  document.querySelectorAll('#onboard .steps i').forEach((d, i) => d.classList.toggle('on', i <= obStep));
+  $('#obBack').hidden = obStep === 0; $('#obNext').hidden = obStep === 2;
+}
+function showOnboard(on) { $('#onboard').hidden = !on; if (on) { obStep = 0; renderOb(); $('#obNext').focus(); } }
+function finishOnboard(mode) { store.set('onboarded', true); showOnboard(false); if (mode) setMode(mode); }
+function wireInterface() {
+  $('#modeSwitch').onclick = e => { const b = e.target.closest('button[data-mode]'); if (b) setMode(b.dataset.mode); };
+  $('#pauseBtn').onclick = () => setPaused(!S.paused);
+  $('#pausedMsg').onclick = () => setPaused(false);
+  $('#privBtn').onclick = () => setPrivacy(!S.set.privacy);
+  $('#optPrivacy').onchange = e => setPrivacy(e.target.checked);
+  $('#partnerBtn').onclick = () => openPartner(true);
+  $('#partnerBtn2').onclick = () => openPartner(true);
+  $('#partnerClose').onclick = () => openPartner(false);
+  $('#partnerSpeak').onclick = speakSentence;
+  $('#settingsBtn').onclick = () => openDrawer(true);
+  $('#drawerClose').onclick = () => openDrawer(false);
+  $('#scrim').onclick = () => openDrawer(false);
+  $('#helpBtn').onclick = () => { $('#help').hidden = false; $('#helpClose').focus(); };
+  $('#helpClose').onclick = () => { $('#help').hidden = true; };
+  $('#help').onclick = e => { if (e.target.id === 'help') $('#help').hidden = true; };
+  $('#helpTour').onclick = () => { $('#help').hidden = true; showOnboard(true); };
+  $('#obNext').onclick = () => { obStep = Math.min(2, obStep + 1); renderOb(); };
+  $('#obBack').onclick = () => { obStep = Math.max(0, obStep - 1); renderOb(); };
+  $('#obSkip').onclick = () => finishOnboard();
+  document.querySelectorAll('#onboard [data-pick]').forEach(b => { b.onclick = () => finishOnboard(b.dataset.pick); });
+  $('#sampleBtn').onclick = () => analyzePhoto('https://storage.googleapis.com/mediapipe-tasks/gesture_recognizer/thumbs_up.jpg').catch(err => toast(err.message));
+  $('#sTheme').value = S.set.theme; $('#sTheme').onchange = e => { S.set.theme = e.target.value; store.set('theme', S.set.theme); applyDisplay(); updateUI(now()); };
+  $('#sText').value = String(S.set.text); $('#sText').onchange = e => { S.set.text = +e.target.value; store.set('text', S.set.text); applyDisplay(); updateUI(now()); };
+  $('#sContrast').checked = S.set.contrast; $('#sContrast').onchange = e => { S.set.contrast = e.target.checked; store.set('contrast', S.set.contrast); applyDisplay(); };
+  $('#sQuick').value = S.quick;
+  $('#sQuick').oninput = e => { S.quick = e.target.value; store.set('quick', S.quick); renderPhrases(); };
+  $('#quickReset').onclick = () => { S.quick = DEFAULT_QUICK; store.set('quick', S.quick); $('#sQuick').value = S.quick; renderPhrases(); };
+  document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (e.key === 'Escape') { openPartner(false); openDrawer(false); $('#help').hidden = true; if (!$('#onboard').hidden) finishOnboard(); return; }
+    if (['input', 'textarea', 'select'].includes(tag) || e.target.isContentEditable || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!$('#onboard').hidden || !$('#drawer').hidden) return;
+    const k = e.key;
+    if (k === '1') setMode('talk'); else if (k === '2') setMode('read'); else if (k === '3') setMode('rest');
+    else if (k === 'Enter' && tag !== 'button') speakSentence();
+    else if (k === 'Backspace') { S.sentence.pop(); renderSentence(); }
+    else if (k === 'p' || k === 'P') setPaused(!S.paused);
+    else if (k === 'v' || k === 'V') setPrivacy(!S.set.privacy);
+    else if (k === 'f' || k === 'F') openPartner($('#partner').hidden);
+    else if (k === 'k' || k === 'K') startCalibration();
+    else if (k === '?') { $('#help').hidden = false; }
+    else return;
+    e.preventDefault();
+  });
+  applyDisplay(); setPrivacy(S.set.privacy, true); setPaused(false, true);
+  renderPhrases(); renderCheat(); setMode(S.uiMode);
+  if (!store.get('onboarded', false)) showOnboard(true);
 }
 function renderGuide() {
   const sec = (title, set, meaning) => `<h4>${title}</h4>` + Object.entries(set).map(([k, n]) => `<div><b>${n}</b><span>${esc(meaning(k) || '')}</span></div>`).join('');
@@ -1314,12 +1518,10 @@ function wire() {
   $('#speakBtn').onclick = speakSentence;
   $('#backBtn').onclick = () => { S.sentence.pop(); renderSentence(); };
   $('#clearBtn').onclick = () => { S.sentence = []; renderSentence(); };
-  $('#phrases').innerHTML = '<button class="sos" data-sos>🆘 HELP</button>' + QUICK.map(q => `<button data-q="${esc(q)}">${esc(q)}</button>`).join('');
   $('#phrases').onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.sos != null) sos(); else addWord(b.dataset.q); };
   $('#tabs').onclick = e => {
     const b = e.target.closest('button'); if (!b) return;
-    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('act', x === b));
-    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('act', p.id === 'p-' + b.dataset.p));
+    activateTab(b.dataset.p);
     updateUI(now());
   };
   $('#tRec').onclick = startRecording;
@@ -1338,8 +1540,8 @@ function wire() {
   $('#aAlarm').onchange = e => { S.set.alarm = e.target.checked; store.set('alarm', S.set.alarm); if (S.set.alarm) toast('Wake-up alarm on'); };
   $('#sLow').onchange = e => { S.set.lowLight = e.target.checked; store.set('lowLight', S.set.lowLight); if (!S.set.lowLight) S.light.boost = 1; };
   $('#sVoice').onchange =e => { S.set.voice = e.target.value; store.set('voice', S.set.voice); };
-  $('#mapTable').oninput = e => { const k = e.target.dataset.map; if (!k) return; S.map[k] = e.target.value; store.set('map', S.map); };
-  $('#mapReset').onclick = () => { S.map = { ...DEFAULT_MAP }; store.set('map', {}); renderMap(); };
+  $('#mapTable').oninput = e => { const k = e.target.dataset.map; if (!k) return; S.map[k] = e.target.value; store.set('map', S.map); renderCheat(); };
+  $('#mapReset').onclick = () => { S.map = { ...DEFAULT_MAP }; store.set('map', {}); renderMap(); renderCheat(); };
   $('#csvBtn').onclick = () => {
     const head = ['time', 'dominant', ...EMOTIONS.map(e => e.k), 'yaw', 'pitch', 'roll', 'gaze', 'blinks_per_min', 'stress'];
     const csv = [head, ...(S.csv || [])].map(r => r.join(',')).join('\n');
@@ -1348,10 +1550,11 @@ function wire() {
   };
   $('#legend').innerHTML = EMOTIONS.map(e => `<span><i style="background:${EMO_COLOR[e.k]}"></i>${e.name.split(' /')[0]}</span>`).join('');
   if ('speechSynthesis' in window) { fillVoices(); speechSynthesis.onvoiceschanged = fillVoices; }
-  renderMap(); renderGuide(); renderCustom(); renderSentence(); $('#sentence').innerHTML = $('#sentence').innerHTML.replace('Sentence is empty.', 'Hold a hand sign (👍 = Yes, ✊ = I need help, ✌️ = Thank you…), nod or shake your head, or tap a phrase below.');
+  renderMap(); renderGuide(); renderCustom(); renderSentence();
+  wireInterface();
   updateUI(now());
 }
 wire();
 
 // Test/automation hook
-window.__BHAAV = { S, alertStep, temporalStep, computeIndicators, scoreAlertness, readMind, analyzeScene, holdStep, microStep, analyzePhoto, summary, fire, classifyHand, shapeGesture, fingerStates, eyeStep, headStep, emotionScores, act, frame, startCalibration, finishCalibration };
+window.__BHAAV = { S, setMode, setPaused, setPrivacy, signalCheck, parseQuick, alertStep, temporalStep, computeIndicators, scoreAlertness, readMind, analyzeScene, holdStep, microStep, analyzePhoto, summary, fire, classifyHand, shapeGesture, fingerStates, eyeStep, headStep, emotionScores, act, frame, startCalibration, finishCalibration };

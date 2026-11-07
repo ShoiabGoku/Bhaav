@@ -5,253 +5,406 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BHAAV · Expression & Sign Reader</title>
 <meta name="description" content="Reads facial emotions, eye gestures, head gestures and hand signs through the camera, entirely on-device, and speaks for people who cannot.">
-<meta name="theme-color" content="#0a0e13">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='30' fill='%230a0e13'/><path d='M14 32c8-12 28-12 36 0-8 12-28 12-36 0z' fill='none' stroke='%232dd4bf' stroke-width='4'/><circle cx='32' cy='32' r='6' fill='%23f5b454'/></svg>">
+<meta name="theme-color" content="#0b0f14">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='30' fill='%230b0f14'/><path d='M14 32c8-12 28-12 36 0-8 12-28 12-36 0z' fill='none' stroke='%232dd4bf' stroke-width='4'/><circle cx='32' cy='32' r='6' fill='%23f5b454'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
+/* ================================================================ tokens */
 :root{
-  --bg:#0a0e13; --panel:#111821; --panel2:#16202b; --line:#233142; --ink:#e6edf3; --dim:#8b9bb0; --faint:#56657a;
-  --teal:#2dd4bf; --amber:#f5b454; --rose:#fb7185; --sky:#60a5fa; --violet:#a78bfa; --lime:#a3e635;
+  --ts:1;
+  --bg:#0b0f14; --panel:#121922; --panel2:#18212c; --well:#0a0f15; --line:#243243; --line2:#33465c;
+  --ink:#e8eef5; --dim:#93a3b8; --faint:#62728a;
+  --teal:#2dd4bf; --accent-ink:#032421; --amber:#f5b454; --rose:#fb7185; --sky:#60a5fa; --violet:#a78bfa; --lime:#a3e635;
+  --teal-soft:rgba(45,212,191,.12); --amber-soft:rgba(245,180,84,.13); --rose-soft:rgba(251,113,133,.14); --violet-soft:rgba(167,139,250,.14);
   --happy:#facc15; --sad:#60a5fa; --angry:#f87171; --surprised:#f472b6; --fear:#a78bfa; --disgust:#84cc16; --contempt:#fb923c; --confused:#22d3ee; --neutral:#94a3b8;
-  --r:14px; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --stage:#05080b; --shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 8px 24px rgba(0,0,0,.25);
+  --r:16px; --mono:'JetBrains Mono',ui-monospace,monospace;
+  color-scheme:dark;
 }
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;font-size:15px}
-button,input,select{font:inherit;color:inherit}
-button{cursor:pointer}
-header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e141b,#0a0e13)}
-.logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.14em;font-size:18px}
-.logo svg{width:30px;height:30px}
-.logo small{display:block;font-weight:400;letter-spacing:.02em;font-size:12px;color:var(--dim)}
-header .spacer{flex:1}
-@media (max-width:560px){header{padding:10px 16px;flex-wrap:wrap;gap:8px}header .spacer{flex-basis:100%;height:0}.logo{font-size:16px}}
-.pill{font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:99px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
-.pill.ok{color:var(--teal);border-color:#1f5f58}
-.pill.warn{color:var(--amber);border-color:#6b5222}
-main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr);gap:16px;padding:16px 20px 28px;max-width:1600px;margin:0 auto}
-@media (max-width:1000px){main{grid-template-columns:1fr;padding:12px 16px 24px}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
-.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600;display:flex;align-items:center;gap:8px}
-.card h3 .grow{flex:1}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f3f5f8; --panel:#ffffff; --panel2:#f1f4f8; --well:#e8edf3; --line:#d5dde7; --line2:#b9c4d2;
+    --ink:#101722; --dim:#4a5667; --faint:#738093;
+    --teal:#0e8f80; --accent-ink:#ffffff; --amber:#a86a12; --rose:#d61f45; --sky:#2563eb; --violet:#6d38d8; --lime:#4d7c0f;
+    --teal-soft:rgba(14,143,128,.10); --amber-soft:rgba(168,106,18,.10); --rose-soft:rgba(214,31,69,.09); --violet-soft:rgba(109,56,216,.09);
+    --shadow:0 1px 2px rgba(16,23,34,.06), 0 8px 24px rgba(16,23,34,.06);
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f3f5f8; --panel:#ffffff; --panel2:#f1f4f8; --well:#e8edf3; --line:#d5dde7; --line2:#b9c4d2;
+  --ink:#101722; --dim:#4a5667; --faint:#738093;
+  --teal:#0e8f80; --accent-ink:#ffffff; --amber:#a86a12; --rose:#d61f45; --sky:#2563eb; --violet:#6d38d8; --lime:#4d7c0f;
+  --teal-soft:rgba(14,143,128,.10); --amber-soft:rgba(168,106,18,.10); --rose-soft:rgba(214,31,69,.09); --violet-soft:rgba(109,56,216,.09);
+  --shadow:0 1px 2px rgba(16,23,34,.06), 0 8px 24px rgba(16,23,34,.06);
+  color-scheme:light;
+}
+:root[data-contrast="high"]{ --ink:#ffffff; --dim:#d3dbe5; --faint:#aeb9c6; --line:#64778d; --line2:#8da0b5; }
+:root[data-contrast="high"][data-theme="light"]{ --ink:#000; --dim:#1f2937; --faint:#374151; --line:#4b5563; --line2:#111827; }
+@media (prefers-color-scheme: light){ :root[data-contrast="high"]:not([data-theme="dark"]){ --ink:#000; --dim:#1f2937; --faint:#374151; --line:#4b5563; --line2:#111827; } }
 
-/* ---------- stage ---------- */
-.stage{position:relative;width:100%;aspect-ratio:16/9;background:#05080b;border-radius:var(--r);overflow:hidden;border:1px solid var(--line)}
+/* ================================================================ base */
+*{box-sizing:border-box}
+html{font-size:calc(15px * var(--ts))}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif}
+body{min-height:100vh;line-height:1.4}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--teal);outline-offset:2px;border-radius:8px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none !important}
+@media (prefers-reduced-motion: reduce){ *,*::before,*::after{animation:none !important;transition:none !important} }
+
+/* ================================================================ header */
+header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:10px 20px;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.14em;font-size:1.15rem;white-space:nowrap}
+.logo svg{width:30px;height:30px;flex:none}
+.logo small{display:block;font-weight:400;letter-spacing:.02em;font-size:.75rem;color:var(--dim)}
+.modes{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:4px;margin:0 auto}
+.modes button{border:0;background:none;border-radius:10px;padding:8px 16px;display:flex;align-items:center;gap:8px;color:var(--dim);font-weight:600;font-size:.95rem;white-space:nowrap;min-height:40px}
+.modes button>span[aria-hidden]{font-size:1.15rem}
+.modes .ml{display:block;text-align:left}
+.modes button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow);outline:1px solid var(--line)}
+.modes button small{display:block;font-weight:400;font-size:.7rem;color:var(--faint);text-align:left}
+.status{display:flex;align-items:center;gap:8px}
+.chip-s{font-family:var(--mono);font-size:.75rem;padding:6px 10px;border-radius:99px;border:1px solid var(--line);color:var(--dim);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--panel)}
+.chip-s .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.chip-s.live .dot{background:#ef4444;box-shadow:0 0 0 0 rgba(239,68,68,.6);animation:pulse 1.6s infinite}
+.chip-s.live{color:var(--ink)}
+.chip-s.ok{color:var(--teal);border-color:color-mix(in srgb,var(--teal) 45%,var(--line))}
+.chip-s.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,var(--line))}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(239,68,68,0)}}
+.bars4{display:inline-flex;gap:2px;align-items:flex-end;height:12px}
+.bars4 i{width:3px;background:var(--line2);border-radius:1px}
+.bars4 i:nth-child(1){height:4px}.bars4 i:nth-child(2){height:7px}.bars4 i:nth-child(3){height:10px}.bars4 i:nth-child(4){height:12px}
+.bars4 i.on{background:var(--teal)}
+.bars4.warn i.on{background:var(--amber)}
+.ib{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--panel);display:inline-grid;place-items:center;font-size:1.1rem;position:relative}
+.ib:hover{border-color:var(--line2)}
+.ib[aria-pressed="true"]{background:var(--teal-soft);border-color:var(--teal);color:var(--teal)}
+.ib.paused[aria-pressed="true"]{background:var(--amber-soft);border-color:var(--amber);color:var(--amber)}
+.pill{font-family:var(--mono);font-size:.75rem;padding:5px 10px;border-radius:99px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.pill.ok{color:var(--teal);border-color:color-mix(in srgb,var(--teal) 45%,var(--line))}
+.pill.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,var(--line))}
+
+/* ================================================================ layout */
+main{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(360px,1fr);gap:18px;padding:18px 20px 28px;max-width:1640px;margin:0 auto;align-items:start}
+[data-mode="talk"] main{grid-template-columns:minmax(0,.95fr) minmax(400px,1.15fr)}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--shadow);min-width:0}
+.card h3,.h3{margin:0 0 10px;font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600;display:flex;align-items:center;gap:8px}
+.grow{flex:1}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.between{justify-content:space-between}
+@media (max-width:1500px){ .modes button small{display:none} .modes button{padding:8px 14px} }
+@media (max-width:1320px){ .status .chip-s.model{display:none} }
+@media (max-width:1180px){ .status .chip-s .lbl{display:none} }
+@media (max-width:1040px){
+  main,[data-mode="talk"] main{grid-template-columns:1fr;padding:14px 16px 96px}
+  .modes{position:fixed;left:12px;right:12px;bottom:12px;z-index:30;margin:0;justify-content:space-around;box-shadow:0 10px 30px rgba(0,0,0,.35);background:var(--panel)}
+  .modes button{flex:1;justify-content:center;flex-direction:column;gap:2px;padding:6px}
+  .modes button small{display:none}
+  /* backdrop-filter would make the header the containing block of the fixed mode bar */
+  header.top{padding:10px 16px;flex-wrap:wrap;backdrop-filter:none;background:var(--bg)}
+  .status .chip-s.model{display:none}
+}
+@media (max-width:560px){
+  .logo small{display:none} .status{gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto} .ib{width:38px;height:38px} .chip-s .lbl{display:none}
+  .ns-hold{display:none}
+  .speak h3{flex-wrap:wrap}
+}
+
+/* mode visibility: Talk hides analysis, Rest hides talking + analysis */
+[data-mode="talk"] #mindCard,[data-mode="talk"] #tabsCard,[data-mode="talk"] #nowCard{display:none}
+[data-mode="rest"] #speakCard,[data-mode="rest"] #mindCard,[data-mode="rest"] #tabs{display:none}
+[data-mode="read"] #speakCard .board,[data-mode="read"] #speakCard .cheat{display:none}
+
+/* ================================================================ stage */
+.stagecard{padding:10px}
+.stage{position:relative;width:100%;aspect-ratio:16/9;max-height:72vh;background:var(--stage);border-radius:12px;overflow:hidden;color:#e8eef5}
 .stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .stage.mirror video,.stage.mirror #overlay{transform:scaleX(-1)}
 .stage #photo{display:none}
 .stage.photo #photo{display:block}
 .stage.photo video{display:none}
-.stage .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px}
-.stage .empty p{color:var(--dim);max-width:460px;margin:0;line-height:1.5}
-.stage .hud{position:absolute;left:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none;max-width:calc(100% - 190px)}
-.hud span{font-family:var(--mono);font-size:12px;background:rgba(5,8,11,.72);border:1px solid rgba(255,255,255,.08);padding:4px 9px;border-radius:8px}
-.stage .bigemo{position:absolute;right:12px;top:12px;background:rgba(5,8,11,.75);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 12px;display:none;align-items:center;gap:10px;pointer-events:none}
-.stage .bigemo b{font-size:30px;line-height:1}
-.stage .bigemo div{font-size:13px;color:var(--dim)} .stage .bigemo div strong{display:block;color:var(--ink);font-size:16px}
-.stage .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%) translateY(20px);opacity:0;transition:.25s;background:rgba(10,14,19,.9);border:1px solid var(--teal);color:var(--ink);padding:8px 16px;border-radius:99px;font-weight:600;pointer-events:none;white-space:nowrap}
-.stage .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.stage .calib{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,8,11,.45);font-size:20px;font-weight:600;text-align:center;pointer-events:none}
-.stage .calib.show{display:flex}
+.stage.privacy video,.stage.privacy #photo{opacity:0}
+.stage.privacy{background:radial-gradient(circle at 50% 40%,#0f1a24,#05080b 70%)}
+.stage .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;background:radial-gradient(circle at 50% 35%,#101b26,#05080b 75%)}
+.stage .empty h2{margin:4px 0 0;font-size:1.5rem;letter-spacing:-.01em}
+.stage .empty p{color:#a9b6c7;max-width:500px;margin:0;line-height:1.5}
+.stage .empty .priv{font-size:.8rem;color:#7d8ca0}
+.hud{position:absolute;left:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none;max-width:calc(100% - 190px)}
+.hud span{font-family:var(--mono);font-size:.72rem;background:rgba(5,8,11,.72);border:1px solid rgba(255,255,255,.08);padding:4px 8px;border-radius:8px}
+.bigemo{position:absolute;right:10px;top:10px;background:rgba(5,8,11,.78);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 12px;display:none;align-items:center;gap:10px;pointer-events:none}
+.bigemo b{font-size:1.9rem;line-height:1}
+.bigemo div{font-size:.82rem;color:#a9b6c7} .bigemo div strong{display:block;color:#fff;font-size:1rem}
+.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%) translateY(20px);opacity:0;transition:.25s;background:rgba(10,14,19,.92);border:1px solid #2dd4bf;color:#fff;padding:9px 18px;border-radius:99px;font-weight:600;pointer-events:none;white-space:nowrap;font-size:1.05rem}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.calib{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,8,11,.5);font-size:1.3rem;font-weight:600;text-align:center;pointer-events:none}
+.calib.show{display:flex}
+.coach{position:absolute;left:10px;bottom:10px;max-width:min(360px,calc(100% - 20px));display:flex;gap:10px;align-items:flex-start;background:rgba(10,14,19,.9);border:1px solid #f5b454;border-radius:12px;padding:9px 12px;font-size:.85rem;pointer-events:none}
+.coach b{display:block;color:#fde68a}
+.coach span{color:#c9d3df}
+.coach .ci{font-size:1.3rem;line-height:1}
+.pausedmsg{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:#3a2a0c;border:1px solid #f5b454;color:#fde68a;border-radius:99px;padding:6px 14px;font-weight:600;font-size:.85rem;white-space:nowrap;cursor:pointer}
 .stage.alarm{animation:alarm .4s linear 4}
-@keyframes alarm{50%{box-shadow:inset 0 0 0 6px var(--rose),0 0 30px var(--rose)}}
-.alert-top{display:flex;gap:12px;align-items:center}
-.alert-top>b{font-size:46px;line-height:1}
-.alert-top strong{font-size:19px}
-.alert-top .big{font-size:28px;font-weight:700;font-family:var(--mono)}
-.abar{height:10px;background:#0a1017;border-radius:6px;overflow:hidden;border:1px solid #1a2532;margin-top:6px}
-.abar .fill{height:100%;width:0;border-radius:6px;transition:width .3s}
-#aSigns .bar{grid-template-columns:minmax(120px,46%) 1fr 64px}
+@keyframes alarm{50%{box-shadow:inset 0 0 0 6px #fb7185,0 0 30px #fb7185}}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
 
-.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
-.btn{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;transition:.15s;display:inline-flex;align-items:center;gap:7px}
-.btn:hover{border-color:#3b4d63;background:#1b2734}
-.btn.primary{background:var(--teal);color:#032421;border-color:var(--teal);font-weight:600}
-.btn.primary:hover{background:#5eead4}
-.btn.danger{background:#3b1219;border-color:#7f1d2d;color:#fecdd3}
+/* ================================================================ buttons */
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:9px 14px;transition:.15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;font-weight:500}
+.btn:hover{border-color:var(--line2)}
+.btn.primary{background:var(--teal);color:var(--accent-ink);border-color:var(--teal);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.lg{padding:14px 22px;font-size:1.08rem;min-height:56px;border-radius:14px}
+.btn.sm{padding:5px 10px;font-size:.85rem;min-height:32px}
 .btn.on{border-color:var(--teal);color:var(--teal)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.btn.sm{padding:5px 10px;font-size:13px}
-select.btn{padding:7px 10px}
-.toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);user-select:none;cursor:pointer}
-.toggle input{accent-color:var(--teal)}
+.stage .btn{background:#18212c;border-color:#33465c;color:#e8eef5}
+.stage .btn.primary{background:#2dd4bf;color:#032421;border-color:#2dd4bf}
+select.btn{padding:8px 10px}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-size:.9rem;color:var(--dim);user-select:none;cursor:pointer}
+.toggle input{accent-color:var(--teal);width:18px;height:18px}
 
-/* ---------- speak bar ---------- */
-.speak{margin-top:14px}
-.sentence{min-height:62px;background:#070b10;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:20px}
-.sentence .word{background:#0f2a27;border:1px solid #1f5f58;padding:4px 10px;border-radius:9px;animation:pop .3s}
-.sentence .ph{color:var(--faint);font-size:15px}
+/* ================================================================ talk card */
+.speak .sentence{min-height:70px;background:var(--well);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:1.35rem}
+[data-mode="talk"] .speak .sentence{min-height:110px;font-size:1.9rem}
+.sentence .word{background:var(--teal-soft);border:1px solid color-mix(in srgb,var(--teal) 50%,transparent);padding:4px 12px;border-radius:10px;animation:pop .3s}
+.sentence .ph{color:var(--faint);font-size:1rem}
 @keyframes pop{from{transform:scale(.7);opacity:0}}
-.phrases{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px;margin-top:10px}
-.phrases button{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:14px;text-align:center}
-.phrases button:hover{border-color:var(--teal)}
-.phrases button.sos{background:#3b1219;border-color:#be123c;color:#fecdd3;font-weight:700}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.row.between{justify-content:space-between}
+.actions{display:grid;grid-template-columns:2fr 1fr 1fr 1.3fr;gap:8px;margin-top:10px}
+[data-mode="read"] .actions .btn.lg{min-height:44px;padding:9px 12px;font-size:.95rem}
+@media (max-width:560px){ .actions{grid-template-columns:1fr 1fr} }
+.nowsign{display:flex;gap:12px;align-items:center;margin-top:12px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:10px 14px}
+.nowsign .ns-icon{font-size:2rem;line-height:1;width:44px;text-align:center}
+.nowsign b{display:block;font-size:1.05rem}
+.nowsign small{color:var(--dim);font-size:.85rem}
+.ns-bar{height:6px;background:var(--well);border-radius:6px;overflow:hidden;margin-top:6px}
+.ns-bar i{display:block;height:100%;width:0;background:var(--teal);border-radius:6px;transition:width .08s linear}
+.nowsign.paused{border-color:var(--amber);background:var(--amber-soft)}
+.nowsign.paused .ns-bar i{background:var(--amber)}
+.nowsign .ns-hold{margin-left:auto}
+.cheat{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.cheat span{font-size:.82rem;background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:4px 10px;color:var(--dim)}
+.cheat span b{color:var(--ink);font-weight:600}
+.board{margin-top:14px}
+.board .bh{display:flex;align-items:center;gap:8px;margin:12px 0 6px;font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.phrases{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
+.phrases button{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:10px 8px;font-size:.95rem;text-align:center;min-height:78px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;line-height:1.2}
+.phrases button i{font-style:normal;font-size:1.6rem;line-height:1}
+.phrases button:hover{border-color:var(--teal);background:var(--teal-soft)}
+.phrases .sos{grid-column:1/-1;flex-direction:row;min-height:58px;gap:10px;background:var(--rose-soft);border-color:var(--rose);color:var(--rose);font-weight:700;font-size:1.1rem}
+.phrases .gh{grid-column:1/-1;font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600;margin:8px 0 0}
 
-/* ---------- right column ---------- */
-.side{display:flex;flex-direction:column;gap:14px;min-width:0}
-.now{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+/* ================================================================ right-now tiles */
+.now{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
 .now .tile{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;min-width:0}
-.tile .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
-.tile .v{font-size:17px;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tile .s{font-size:12px;color:var(--dim);font-family:var(--mono);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px -4px 12px;padding:0 4px;overflow-x:auto;scrollbar-width:none}
+.tile .k{font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.tile .v{font-size:1.05rem;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .s{font-size:.75rem;color:var(--dim);font-family:var(--mono);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ================================================================ mentalist */
+.mind{border-color:color-mix(in srgb,var(--violet) 35%,var(--line));background:linear-gradient(160deg,color-mix(in srgb,var(--violet) 6%,var(--panel)),var(--panel))}
+.mtop{display:flex;gap:14px;align-items:center}
+.mtop>b{font-size:2.9rem;line-height:1}
+.mtop strong{font-size:1.4rem;display:block}
+.mtip{font-size:.9rem;color:var(--teal);margin-top:4px;line-height:1.4}
+.mwhy{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.mwhy div{font-size:.88rem;color:var(--dim);padding-left:16px;position:relative;line-height:1.45}
+.mwhy div::before{content:'›';position:absolute;left:3px;color:var(--amber);font-weight:700}
+.mwarn:empty,.malt:empty,.mgest:empty{display:none}
+.mwarn{margin-top:12px;background:var(--amber-soft);border:1px solid color-mix(in srgb,var(--amber) 50%,transparent);color:var(--ink);border-radius:12px;padding:9px 12px;font-size:.88rem;line-height:1.45}
+.malt{margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;font-size:.8rem;color:var(--dim);align-items:center}
+.malt span{background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:3px 10px}
+.mgest{margin-top:12px;display:flex;gap:6px;flex-wrap:wrap}
+.mgest span{background:var(--teal-soft);border:1px solid color-mix(in srgb,var(--teal) 45%,transparent);border-radius:10px;padding:4px 10px;font-size:.85rem}
+.mgest span.combo{background:var(--violet-soft);border-color:color-mix(in srgb,var(--violet) 45%,transparent)}
+.mfoot{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:.8rem;color:var(--dim)}
+.mfoot span:empty{display:none}
+.mfoot span{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px 9px}
+
+/* ================================================================ tabs & panes */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:-6px -6px 14px;padding:0 6px;overflow-x:auto;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
-.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:8px 10px;color:var(--dim);font-weight:500;white-space:nowrap}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:10px 12px;color:var(--dim);font-weight:500;white-space:nowrap;min-height:44px}
 .tabs button.act{color:var(--ink);border-bottom-color:var(--teal)}
 .pane{display:none}.pane.act{display:block}
-
 .bars{display:flex;flex-direction:column;gap:7px}
-.bar{display:grid;grid-template-columns:118px 1fr 44px;gap:8px;align-items:center;font-size:14px}
-.bar .track{height:10px;background:#0a1017;border-radius:6px;overflow:hidden;border:1px solid #1a2532}
+.bar{display:grid;grid-template-columns:120px 1fr 46px;gap:8px;align-items:center;font-size:.9rem}
+.bar .track{height:10px;background:var(--well);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
 .bar .fill{height:100%;width:0;border-radius:6px;transition:width .12s linear}
-.bar .pct{font-family:var(--mono);font-size:12px;color:var(--dim);text-align:right}
+.bar .pct{font-family:var(--mono);font-size:.78rem;color:var(--dim);text-align:right}
 .bar.top .lbl{font-weight:700}
-.sub{font-size:12px;color:var(--faint);line-height:1.5;margin:10px 0 0}
+.sub{font-size:.8rem;color:var(--faint);line-height:1.55;margin:10px 0 0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media (max-width:520px){.grid2{grid-template-columns:1fr}}
+@media (max-width:560px){.grid2{grid-template-columns:1fr}}
 .gauge{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
-.gauge .big{font-size:30px;font-weight:700;font-family:var(--mono)}
-.gauge .lvl{font-size:13px;font-weight:600}
+.gauge .k{font-size:.7rem;letter-spacing:.12em;color:var(--faint);text-transform:uppercase}
+.gauge .big{font-size:1.9rem;font-weight:700;font-family:var(--mono)}
+.gauge .lvl{font-size:.85rem;font-weight:600}
 .minibars{margin-top:8px;display:flex;flex-direction:column;gap:5px}
-.minibars .bar{grid-template-columns:104px 1fr 36px;font-size:12px}
+.minibars .bar{grid-template-columns:110px 1fr 38px;font-size:.78rem}
 .minibars .track{height:6px}
-canvas.timeline{width:100%;height:110px;display:block;background:#070b10;border-radius:10px;border:1px solid var(--line)}
-.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--dim);margin-top:8px}
+canvas.timeline{width:100%;height:110px;display:block;background:var(--well);border-radius:10px;border:1px solid var(--line)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.78rem;color:var(--dim);margin-top:8px}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;vertical-align:0}
 .circ{width:100%;max-width:230px;aspect-ratio:1;display:block;margin:0 auto}
-
-.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:6px}
-.chip{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:13px;position:relative;overflow:hidden;transition:border-color .15s}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:.85rem;position:relative;overflow:hidden;transition:border-color .15s}
 .chip .m{position:absolute;left:0;bottom:0;height:3px;background:var(--teal);width:0;transition:width .12s}
-.chip.on{border-color:var(--teal);color:#ccfbf1;background:#0f2a27}
+.chip.on{border-color:var(--teal);background:var(--teal-soft)}
 .chip.hidden{opacity:.4;border-style:dashed}
-.mind{background:linear-gradient(160deg,#131b26,#101720);border-color:#2b3b50}
-.mtop{display:flex;gap:12px;align-items:center}
-.mtop>b{font-size:42px;line-height:1}
-.mtop strong{font-size:20px;display:block}
-.mtip{font-size:13px;color:var(--teal);margin-top:3px;line-height:1.4}
-.mwhy{display:flex;flex-direction:column;gap:4px;margin-top:10px}
-.mwhy div{font-size:13px;color:var(--dim);padding-left:14px;position:relative;line-height:1.4}
-.mwhy div::before{content:'›';position:absolute;left:2px;color:var(--amber)}
-.mwarn:empty,.malt:empty,.mgest:empty{display:none}
-.mwarn{margin-top:10px;background:#2a200c;border:1px solid #6b5222;color:#fde68a;border-radius:10px;padding:8px 10px;font-size:13px;line-height:1.45}
-.malt{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--dim)}
-.malt span{background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:3px 9px}
-.mgest{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
-.mgest span{background:#0f2a27;border:1px solid #1f5f58;color:#ccfbf1;border-radius:9px;padding:4px 9px;font-size:13px}
-.mgest span.combo{background:#241a38;border-color:#4c3d7a;color:#ddd6fe}
-.mfoot{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--faint)}
-.mfoot span:empty{display:none}
-.mfoot span{background:var(--panel2);border-radius:8px;padding:3px 8px}
-details.guide{margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
-details.guide summary{cursor:pointer;color:var(--dim);font-weight:600;font-size:14px}
-.gl{display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;max-height:420px;overflow:auto}
-.gl div{display:grid;grid-template-columns:minmax(150px,40%) 1fr;gap:10px;font-size:13px;padding:5px 8px;background:var(--panel2);border-radius:8px}
-.gl div span{color:var(--dim)}
-.gl h4{margin:10px 0 2px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
 .chip small{color:var(--faint)}
 .looks{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px}
-.look{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
-.look.on{border-color:var(--amber);background:#2a200c}
-.look .track{height:5px;background:#0a1017;border-radius:4px;margin-top:6px;overflow:hidden}
+.look{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.85rem}
+.look.on{border-color:var(--amber);background:var(--amber-soft)}
+.look .track{height:5px;background:var(--well);border-radius:4px;margin-top:6px;overflow:hidden}
 .look .track i{display:block;height:100%;background:var(--amber)}
 .eyesvg{width:100%;max-width:340px;display:block;margin:0 auto}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .stats div{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px}
-.stats b{display:block;font-family:var(--mono);font-size:18px}
-.stats span{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
-.feed{max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.stats b{display:block;font-family:var(--mono);font-size:1.15rem}
+.stats span{font-size:.7rem;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+.feed{max-height:230px;overflow:auto;display:flex;flex-direction:column;gap:4px;font-size:.85rem}
 .feed div{display:flex;gap:8px;padding:5px 8px;background:var(--panel2);border-radius:8px;border-left:3px solid var(--line)}
-.feed time{font-family:var(--mono);color:var(--faint);font-size:11px;padding-top:2px}
+.feed time{font-family:var(--mono);color:var(--faint);font-size:.72rem;padding-top:2px}
 .feed .eye{border-left-color:var(--sky)} .feed .head{border-left-color:var(--violet)} .feed .hand{border-left-color:var(--amber)} .feed .emo{border-left-color:var(--happy)} .feed .say{border-left-color:var(--teal)}
 .hands{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .hcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:120px}
-.hcard .g{font-size:26px;font-weight:700;margin:4px 0}
-.hcard .meta{font-size:12px;color:var(--dim);font-family:var(--mono)}
+.hcard .g{font-size:1.6rem;font-weight:700;margin:4px 0}
+.hcard .meta{font-size:.78rem;color:var(--dim);font-family:var(--mono)}
 .fingers{display:flex;gap:5px;margin-top:8px}
-.fingers span{flex:1;text-align:center;font-size:10px;color:var(--faint);padding:4px 0;border-radius:6px;background:#0a1017;border:1px solid #1a2532}
-.fingers span.x{background:#3a2a0c;border-color:var(--amber);color:var(--amber)}
+.fingers span{flex:1;text-align:center;font-size:.65rem;color:var(--faint);padding:4px 0;border-radius:6px;background:var(--well);border:1px solid var(--line)}
+.fingers span.x{background:var(--amber-soft);border-color:var(--amber);color:var(--amber)}
 .train{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
-.train input[type=text]{background:#070b10;border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0;flex:1}
+.field{background:var(--well);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0;flex:1}
 .custom{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-.custom div{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-size:13px}
+.custom div{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:.85rem}
 .custom div b{flex:1}
-table.map{width:100%;border-collapse:collapse;font-size:13px}
-table.map td{padding:4px 4px;border-bottom:1px solid #18222e}
+details.guide{margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
+details.guide summary{cursor:pointer;color:var(--dim);font-weight:600;font-size:.9rem}
+.gl{display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;max-height:420px;overflow:auto}
+.gl div{display:grid;grid-template-columns:minmax(150px,40%) 1fr;gap:10px;font-size:.85rem;padding:5px 8px;background:var(--panel2);border-radius:8px}
+.gl div span{color:var(--dim)}
+.gl h4{margin:10px 0 2px;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}
+.alert-top{display:flex;gap:14px;align-items:center}
+.alert-top>b{font-size:2.9rem;line-height:1}
+.alert-top strong{font-size:1.25rem}
+.alert-top .big{font-size:1.9rem;font-weight:700;font-family:var(--mono)}
+[data-mode="rest"] .alert-top>b{font-size:4.2rem}
+[data-mode="rest"] .alert-top strong{font-size:1.7rem}
+[data-mode="rest"] .alert-top .big{font-size:2.8rem}
+.abar{height:12px;background:var(--well);border-radius:6px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
+.abar .fill{height:100%;width:0;border-radius:6px;transition:width .3s}
+#aSigns .bar{grid-template-columns:minmax(120px,46%) 1fr 66px}
+
+/* ================================================================ drawer, dialogs, partner view */
+.scrim{position:fixed;inset:0;background:rgba(3,6,10,.55);z-index:40}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--panel);border-left:1px solid var(--line);z-index:41;display:flex;flex-direction:column;box-shadow:-20px 0 40px rgba(0,0,0,.3)}
+.drawer header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.drawer header h2{margin:0;font-size:1.1rem;flex:1}
+.drawer .body{overflow:auto;padding:6px 18px 24px}
+.drawer section{padding:12px 0;border-bottom:1px solid var(--line)}
+.drawer section:last-child{border-bottom:0}
+.set{display:flex;flex-direction:column;gap:12px}
+.set label{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:.92rem}
+.set input[type=range]{flex:1;max-width:190px;accent-color:var(--teal)}
+.set input[type=checkbox]{accent-color:var(--teal);width:20px;height:20px}
+textarea.field{width:100%;min-height:200px;font-family:var(--mono);font-size:.82rem;line-height:1.5;resize:vertical}
+table.map{width:100%;border-collapse:collapse;font-size:.85rem}
+table.map td{padding:4px;border-bottom:1px solid var(--line)}
 table.map td:first-child{color:var(--dim);white-space:nowrap}
-table.map input{width:100%;background:#070b10;border:1px solid var(--line);border-radius:7px;padding:5px 8px}
-.set{display:flex;flex-direction:column;gap:10px}
-.set label{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
-.set input[type=range]{flex:1;max-width:200px;accent-color:var(--teal)}
-footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);font-size:12px;line-height:1.6}
-.spin{width:16px;height:16px;border:2px solid #2dd4bf44;border-top-color:var(--teal);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+table.map input{width:100%;background:var(--well);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:16px;background:rgba(3,6,10,.62)}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:20px;max-width:620px;width:100%;max-height:calc(100vh - 32px);overflow:auto;padding:26px;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.sheet h2{margin:0 0 6px;font-size:1.5rem}
+.sheet p{color:var(--dim);line-height:1.55;margin:8px 0}
+.steps{display:flex;gap:6px;margin:0 0 16px}
+.steps i{height:4px;flex:1;border-radius:4px;background:var(--line)}
+.steps i.on{background:var(--teal)}
+.tips{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:14px 0}
+@media (max-width:560px){.tips{grid-template-columns:1fr}}
+.tips div{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.88rem;color:var(--dim)}
+.tips div b{display:block;color:var(--ink);font-size:1.4rem;margin-bottom:4px}
+.pick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
+@media (max-width:560px){.pick{grid-template-columns:1fr}}
+.pick button{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:16px 12px;text-align:left;display:flex;flex-direction:column;gap:6px}
+.pick button:hover{border-color:var(--teal)}
+.pick button b{font-size:1.05rem}
+.pick button span{font-size:1.8rem}
+.pick button small{color:var(--dim);font-size:.82rem;line-height:1.4}
+.keys{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:8px}
+.keys td{padding:7px 4px;border-bottom:1px solid var(--line)}
+kbd{font-family:var(--mono);font-size:.8rem;background:var(--panel2);border:1px solid var(--line2);border-bottom-width:2px;border-radius:6px;padding:2px 7px}
+.partner{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:24px;text-align:center}
+.partner-text{font-size:clamp(2.2rem,7vw,6.5rem);font-weight:700;line-height:1.15;max-width:1400px;word-wrap:break-word}
+.partner-text.empty{color:var(--faint);font-size:clamp(1.4rem,3vw,2.2rem);font-weight:500}
+.partner .lbl{color:var(--dim);letter-spacing:.14em;text-transform:uppercase;font-size:.85rem}
+footer{max-width:1640px;margin:0 auto;padding:0 20px 30px;color:var(--faint);font-size:.8rem;line-height:1.6}
+.spin{width:16px;height:16px;border:2px solid rgba(45,212,191,.3);border-top-color:#2dd4bf;border-radius:50%;animation:sp 1s linear infinite;display:inline-block;vertical-align:-3px}
 @keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
-<body>
-<header>
+<body data-mode="talk">
+<div class="sr" id="sr" aria-live="polite"></div>
+
+<header class="top">
   <div class="logo">
-    <svg viewBox="0 0 64 64"><path d="M6 32c10-15 42-15 52 0-10 15-42 15-52 0z" fill="none" stroke="#2dd4bf" stroke-width="3.5"/><circle cx="32" cy="32" r="9" fill="none" stroke="#f5b454" stroke-width="3.5"/><circle cx="32" cy="32" r="3.5" fill="#f5b454"/></svg>
+    <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M6 32c10-15 42-15 52 0-10 15-42 15-52 0z" fill="none" stroke="#2dd4bf" stroke-width="3.5"/><circle cx="32" cy="32" r="9" fill="none" stroke="#f5b454" stroke-width="3.5"/><circle cx="32" cy="32" r="3.5" fill="#f5b454"/></svg>
     <div>BHAAV<small>Expression · Eye · Sign reader</small></div>
   </div>
-  <div class="spacer"></div>
-  <span class="pill" id="modelPill">models: not loaded</span>
-  <span class="pill ok" title="Video never leaves this device">🔒 on-device</span>
+  <nav class="modes" id="modeSwitch" aria-label="Mode">
+    <button data-mode="talk" aria-pressed="true"><span aria-hidden="true">🗣</span><span class="ml">Talk<small>signs → speech</small></span></button>
+    <button data-mode="read" aria-pressed="false"><span aria-hidden="true">🧠</span><span class="ml">Read<small>emotions &amp; body language</small></span></button>
+    <button data-mode="rest" aria-pressed="false"><span aria-hidden="true">😴</span><span class="ml">Rest<small>sleep &amp; energy</small></span></button>
+  </nav>
+  <div class="status">
+    <span class="chip-s" id="camState" title="Camera status"><i class="dot"></i><span class="lbl">Camera off</span></span>
+    <span class="chip-s" id="signal" title="Signal quality"><span class="bars4" id="signalBars"><i></i><i></i><i></i><i></i></span><span class="lbl">Signal</span></span>
+    <span class="chip-s model" id="modelPill">models: not loaded</span>
+    <button class="ib paused" id="pauseBtn" aria-pressed="false" title="Pause typing (P)" aria-label="Pause typing">⏸</button>
+    <button class="ib" id="privBtn" aria-pressed="false" title="Privacy view: hide the video, keep the outline (V)" aria-label="Privacy view">🙈</button>
+    <button class="ib" id="partnerBtn" title="Show the sentence to others, full screen (F)" aria-label="Show to others">📺</button>
+    <button class="ib" id="helpBtn" title="Help and keyboard shortcuts (?)" aria-label="Help">?</button>
+    <button class="ib" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+  </div>
 </header>
 
 <main>
-  <section>
-    <div class="stage mirror" id="stage">
-      <video id="video" playsinline muted></video>
-      <canvas id="photo"></canvas>
-      <canvas id="overlay"></canvas>
-      <div class="hud" id="hud"></div>
-      <div class="bigemo" id="bigemo"><b id="bigemoIcon">😐</b><div><strong id="bigemoName">Neutral</strong><span id="bigemoConf"></span></div></div>
-      <div class="calib" id="calibMsg">Hold a relaxed, neutral face<br>and look at the screen…</div>
-      <div class="toast" id="toast"></div>
-      <div class="empty" id="empty">
-        <svg width="72" height="72" viewBox="0 0 64 64"><path d="M6 32c10-15 42-15 52 0-10 15-42 15-52 0z" fill="none" stroke="#2dd4bf" stroke-width="2.5"/><circle cx="32" cy="32" r="9" fill="none" stroke="#f5b454" stroke-width="2.5"/></svg>
-        <p>Turn on the camera to read <b>facial emotions</b>, <b>eye gestures</b>, <b>head nods</b> and <b>hand signs</b>. Signs can be turned into spoken sentences for someone who can't speak.</p>
-        <div class="row" style="justify-content:center">
-          <button class="btn primary" id="startBtn">▶ Start camera</button>
-          <label class="btn">🖼 Analyze a photo<input type="file" id="photoIn" accept="image/*" hidden></label>
+  <div class="col" id="colL">
+    <div class="card stagecard" id="stageCard">
+      <div class="stage mirror" id="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="photo"></canvas>
+        <canvas id="overlay"></canvas>
+        <div class="hud" id="hud"></div>
+        <div class="bigemo" id="bigemo"><b id="bigemoIcon">😐</b><div><strong id="bigemoName">Neutral</strong><span id="bigemoConf"></span></div></div>
+        <div class="calib" id="calibMsg">Hold a relaxed, neutral face<br>and look at the screen…</div>
+        <div class="coach" id="coach" hidden><span class="ci" id="coachIcon">💡</span><div><b id="coachTitle"></b><span id="coachText"></span></div></div>
+        <div class="pausedmsg" id="pausedMsg" hidden title="Click or press P to resume">⏸ Typing paused · tap to resume</div>
+        <div class="toast" id="toast" role="status"></div>
+        <div class="empty" id="empty">
+          <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 32c10-15 42-15 52 0-10 15-42 15-52 0z" fill="none" stroke="#2dd4bf" stroke-width="2.5"/><circle cx="32" cy="32" r="9" fill="none" stroke="#f5b454" stroke-width="2.5"/></svg>
+          <h2>Let your face and hands do the talking</h2>
+          <p>Reads <b>emotions</b>, <b>eye and head gestures</b>, <b>hand signs</b> and <b>tiredness</b>, and turns signs into spoken sentences for someone who can't speak.</p>
+          <div class="row" style="justify-content:center;margin-top:4px">
+            <button class="btn primary lg" id="startBtn">▶ Start camera</button>
+            <label class="btn lg">🖼 Analyze a photo<input type="file" id="photoIn" accept="image/*" hidden></label>
+          </div>
+          <button class="btn sm" id="sampleBtn">✨ No camera? Try a sample photo</button>
+          <p class="priv">🔒 Everything runs on this device. Nothing is uploaded or recorded.</p>
         </div>
       </div>
-    </div>
-
-    <div class="controls">
-      <button class="btn primary" id="camBtn" style="display:none">■ Stop</button>
-      <select class="btn" id="camSel" title="Camera" style="display:none"></select>
-      <button class="btn" id="calibBtn" title="Record your neutral face so readings are personal to you">◎ Calibrate neutral</button>
-      <label class="btn" id="photoBtn2" style="display:none">🖼 Photo<input type="file" id="photoIn2" accept="image/*" hidden></label>
-      <span class="spacer" style="flex:1"></span>
-      <label class="toggle"><input type="checkbox" id="optMesh" checked> face mesh</label>
-      <label class="toggle"><input type="checkbox" id="optHands" checked> hand skeleton</label>
-      <label class="toggle"><input type="checkbox" id="optMirror" checked> mirror</label>
-    </div>
-
-    <div class="card speak">
-      <h3>🗣 Speak for me <span class="grow"></span>
-        <label class="toggle"><input type="checkbox" id="optTyping" checked> hand signs type</label>
-        <label class="toggle"><input type="checkbox" id="optEyeCmd" checked> eye/head commands</label>
-      </h3>
-      <div class="sentence" id="sentence"><span class="ph">Hold a hand sign (👍 = Yes, ✊ = I need help, ✌️ = Thank you…), nod or shake your head, or tap a phrase below.</span></div>
-      <div class="row" style="margin-top:10px">
-        <button class="btn primary" id="speakBtn">🔊 Speak</button>
-        <button class="btn" id="backBtn">⌫ Undo</button>
-        <button class="btn" id="clearBtn">✕ Clear</button>
-        <label class="toggle"><input type="checkbox" id="optAuto"> speak each word</label>
-        <span style="flex:1"></span>
-        <span class="pill" id="holdPill">hold 0.9 s to type</span>
+      <div class="toolbar">
+        <button class="btn" id="camBtn" style="display:none">■ Stop camera</button>
+        <select class="btn" id="camSel" title="Camera" aria-label="Choose camera" style="display:none"></select>
+        <button class="btn" id="calibBtn" title="Record your neutral face so readings are personal to you (K)">◎ Calibrate</button>
+        <label class="btn" id="photoBtn2" style="display:none">🖼 Photo<input type="file" id="photoIn2" accept="image/*" hidden></label>
       </div>
-      <div class="phrases" id="phrases"></div>
     </div>
-  </section>
 
-  <section class="side">
-    <div class="card">
+    <div class="card" id="nowCard">
       <h3>Right now</h3>
       <div class="now">
         <div class="tile"><div class="k">Emotion</div><div class="v" id="nEmo">—</div><div class="s" id="nEmoS"></div></div>
@@ -261,8 +414,30 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <div class="tile"><div class="k">Energy</div><div class="v" id="nEnergy">—</div><div class="s" id="nEnergyS"></div></div>
       </div>
     </div>
+  </div>
 
-    <div class="card mind">
+  <div class="col" id="colR">
+    <div class="card speak" id="speakCard">
+      <h3>🗣 Speak for me <span class="grow"></span><label class="toggle"><input type="checkbox" id="optAuto"> speak each word</label></h3>
+      <div class="sentence" id="sentence" aria-live="polite"></div>
+      <div class="actions">
+        <button class="btn primary lg" id="speakBtn">🔊 Speak</button>
+        <button class="btn lg" id="backBtn" title="Remove the last word (Backspace)">⌫ Undo</button>
+        <button class="btn lg" id="clearBtn">✕ Clear</button>
+        <button class="btn lg" id="partnerBtn2" title="Show the sentence full screen (F)">📺 Show</button>
+      </div>
+      <div class="nowsign" id="nowSign">
+        <span class="ns-icon" id="nsIcon">✋</span>
+        <div style="flex:1;min-width:0"><b id="nsName">Show a sign</b><small id="nsPhrase">Hold it still to type its phrase</small><div class="ns-bar"><i id="nsBar"></i></div></div>
+        <span class="pill ns-hold" id="holdPill">hold 0.9 s to type</span>
+      </div>
+      <div class="cheat" id="cheat"></div>
+      <div class="board">
+        <div class="phrases" id="phrases"></div>
+      </div>
+    </div>
+
+    <div class="card mind" id="mindCard">
       <h3>🧠 Mentalist read <span class="grow"></span><span class="pill" id="mConf">—</span></h3>
       <div class="mtop"><b id="mIcon">·</b><div><strong id="mName">Waiting for a face or hands…</strong><div class="mtip" id="mTip">Face, eyes, head and hands are read together, the way a clinician would.</div></div></div>
       <div class="mwhy" id="mWhy"></div>
@@ -272,15 +447,14 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
       <div class="mfoot"><span id="mSmile"></span><span id="mMicro"></span></div>
     </div>
 
-    <div class="card">
-      <div class="tabs" id="tabs">
+    <div class="card" id="tabsCard">
+      <div class="tabs" id="tabs" role="tablist">
         <button data-p="emo" class="act">Emotions</button>
         <button data-p="eyes">Eyes</button>
         <button data-p="alert">Sleep &amp; energy</button>
         <button data-p="face">Face &amp; head</button>
         <button data-p="hands">Hand signs</button>
         <button data-p="log">Log</button>
-        <button data-p="set">Settings</button>
       </div>
 
       <div class="pane act" id="p-emo">
@@ -290,18 +464,18 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <div class="legend" id="legend"></div>
         <div class="grid2" style="margin-top:14px">
           <div class="gauge">
-            <div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Stress / anxiety signs</div>
+            <div class="k">Stress / anxiety signs</div>
             <div class="row between"><span class="big" id="stressV">–</span><span class="lvl" id="stressL"></span></div>
             <div class="minibars" id="stressBars"></div>
           </div>
           <div class="gauge">
-            <div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Mood map (valence × arousal)</div>
+            <div class="k">Mood map (valence × arousal)</div>
             <svg class="circ" id="circ" viewBox="-110 -110 220 220"></svg>
           </div>
         </div>
         <div class="grid2" style="margin-top:12px">
-          <div class="gauge"><div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Tiredness</div><div class="row between"><span class="big" id="drowsyV">–</span><span class="lvl" id="drowsyL"></span></div><div class="sub" id="drowsyS" style="margin-top:4px"></div></div>
-          <div class="gauge"><div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Attention on screen</div><div class="row between"><span class="big" id="attnV">–</span><span class="lvl" id="attnL"></span></div><div class="sub" style="margin-top:4px">share of the last 10 s facing the camera</div></div>
+          <div class="gauge"><div class="k">Tiredness</div><div class="row between"><span class="big" id="drowsyV">–</span><span class="lvl" id="drowsyL"></span></div><div class="sub" id="drowsyS" style="margin-top:4px"></div></div>
+          <div class="gauge"><div class="k">Attention on screen</div><div class="row between"><span class="big" id="attnV">–</span><span class="lvl" id="attnL"></span></div><div class="sub" style="margin-top:4px">share of the last 10 s facing the camera</div></div>
         </div>
         <div class="row" style="margin-top:12px"><button class="btn sm" id="csvBtn">⬇ Export session CSV</button><span class="sub" id="sessionSum" style="margin:0"></span></div>
         <p class="sub">Emotion readings come from 52 facial-muscle movements (brows, eyelids, cheeks, lips, jaw). They describe what the face is showing, not what a person feels inside, and they can't diagnose anxiety or any other condition. Calibrate your neutral face for more accurate readings.</p>
@@ -319,7 +493,7 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         </div>
         <h3 style="margin-top:14px">Eye gestures detected</h3>
         <div class="feed" id="eyeFeed"></div>
-        <p class="sub">Detects: blink · double blink · long blink (eyes shut ≥ 1 s) · left / right wink · looking left, right, up or down (held ½ s) · wide eyes · squint. Normal is about 12–20 blinks a minute. A much higher rate can go with stress or dry eyes, and long closures can mean tiredness.</p>
+        <p class="sub">Detects: blink · double blink · long blink (eyes shut 1–2 s) · left / right wink · looking left, right, up or down (held ½ s) · wide eyes · squint. Normal is about 12–20 blinks a minute. A much higher rate can go with stress or dry eyes, and long closures can mean tiredness.</p>
       </div>
 
       <div class="pane" id="p-alert">
@@ -333,8 +507,8 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         </div>
         <div class="mwhy" id="aWhy"></div>
         <div class="gauge" style="margin-top:12px">
-          <div class="k" style="font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase">Did they sleep well? (from the face)</div>
-          <div class="lvl" id="aRest" style="font-size:17px;margin-top:4px">—</div>
+          <div class="k">Did they sleep well? (from the face)</div>
+          <div class="lvl" id="aRest" style="font-size:1.1rem;margin-top:4px">—</div>
           <div class="mwhy" id="aRestWhy" style="margin-top:6px"></div>
         </div>
         <h3 style="margin-top:14px">Signs being measured</h3>
@@ -342,7 +516,7 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <h3 style="margin-top:14px">Alertness this session</h3>
         <canvas class="timeline" id="aHist" style="height:80px"></canvas>
         <label class="toggle" style="margin-top:12px"><input type="checkbox" id="aAlarm"> 🔔 Wake-up alarm: beep and say "Wake up!" on a micro-sleep or nodding off (e.g. while studying or driving)</label>
-        <p class="sub">Live signs: eyes-closed time (PERCLOS), blink length, long closures, micro-sleeps (eyes shut 2 s+), yawns, head nodding off, and a glazed stare. Face signs that work even on a photo: hanging eyelids, dark circles, red eyes, and drooping mouth corners. <b>Eye shapes differ between people</b>, so press <i>Calibrate neutral</i> while you're fully awake and eyelid droop will be measured against your own eyes. Dark circles can also be genetic, and redness can come from allergies or screens. This is an estimate, not a sleep test. If you're very sleepy most days despite 7–9 hours in bed, talk to a doctor (conditions like sleep apnoea are common and treatable).</p>
+        <p class="sub">Live signs: eyes-closed time (PERCLOS), blink length, long closures, micro-sleeps (eyes shut 2 s+), yawns, head nodding off, and a glazed stare. Face signs that work even on a photo: hanging eyelids, dark circles, red eyes, and drooping mouth corners. <b>Eye shapes differ between people</b>, so press <i>Calibrate</i> while you're fully awake and eyelid droop will be measured against your own eyes. Dark circles can also be genetic, and redness can come from allergies or screens. This is an estimate, not a sleep test. If you're very sleepy most days despite 7–9 hours in bed, talk to a doctor (conditions like sleep apnoea are common and treatable).</p>
       </div>
 
       <div class="pane" id="p-face">
@@ -359,7 +533,7 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         </div>
         <h3 style="margin-top:14px">Head gestures</h3>
         <div class="feed" id="headFeed"></div>
-        <p class="sub">Nod = yes, shake = no. Both can be spoken automatically when eye/head commands are on.</p>
+        <p class="sub">Nod = yes, shake = no. Both can be spoken automatically when eye/head commands are on (Settings).</p>
       </div>
 
       <div class="pane" id="p-hands">
@@ -369,7 +543,7 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <details class="guide"><summary>📖 Gesture guide: everything BHAAV understands</summary><div class="gl" id="guide"></div></details>
         <div class="train">
           <h3>✋ Teach your own sign</h3>
-          <div class="row"><input type="text" id="tName" placeholder="Sign name (e.g. Water)"><input type="text" id="tPhrase" placeholder="What it should say"></div>
+          <div class="row"><input type="text" class="field" id="tName" placeholder="Sign name (e.g. Water)"><input type="text" class="field" id="tPhrase" placeholder="What it should say"></div>
           <div class="row" style="margin-top:8px"><button class="btn" id="tRec">● Record 3 s</button><span class="sub" id="tStatus" style="margin:0">Show the sign to the camera, press record, and move your hand a little so it learns from several angles.</span></div>
           <div class="custom" id="customList"></div>
         </div>
@@ -379,31 +553,139 @@ footer{max-width:1600px;margin:0 auto;padding:0 20px 30px;color:var(--faint);fon
         <div class="row between"><h3 style="margin:0">All events</h3><button class="btn sm" id="logClear">Clear</button></div>
         <div class="feed" id="logFeed" style="max-height:480px;margin-top:8px"></div>
       </div>
+    </div>
+  </div>
+</main>
 
-      <div class="pane" id="p-set">
-        <div class="set">
-          <label>Hold time to type a sign <input type="range" id="sHold" min="400" max="2500" step="100" value="900"><span id="sHoldV" class="pill">0.9 s</span></label>
-          <label>Custom-sign strictness <input type="range" id="sStrict" min="0.3" max="1.6" step="0.05" value="0.9"><span id="sStrictV" class="pill">0.90</span></label>
-          <label>Beard / face covering <select class="btn" id="sCover" style="max-width:230px">
-            <option value="auto">Auto-detect</option><option value="none">None (face fully visible)</option>
-            <option value="beard">Beard / moustache</option><option value="mask">Mask, niqab or scarf over mouth</option></select></label>
-          <label>Glasses <select class="btn" id="sGlasses" style="max-width:230px">
-            <option value="auto">Auto-detect</option><option value="yes">I wear glasses</option><option value="no">No glasses</option></select></label>
-          <label>Low-light boost <input type="checkbox" id="sLow" style="accent-color:var(--teal);width:18px;height:18px"></label>
-          <label>Voice <select class="btn" id="sVoice" style="max-width:230px"></select></label>
-          <label>Speech rate <input type="range" id="sRate" min="0.6" max="1.4" step="0.05" value="0.95"><span id="sRateV" class="pill">0.95</span></label>
-        </div>
-        <h3 style="margin-top:18px">What each sign or gesture says</h3>
-        <p class="sub" style="margin-top:0">Leave a box empty to ignore that trigger. Special actions: <code>[speak]</code> speaks the sentence, <code>[undo]</code> removes the last word, <code>[clear]</code> clears it.</p>
-        <table class="map" id="mapTable"></table>
-        <div class="row" style="margin-top:10px"><button class="btn sm" id="mapReset">Restore defaults</button></div>
+<footer>
+  BHAAV runs Google MediaPipe face and hand models in your browser (WebAssembly + GPU). Camera frames are never uploaded or stored. Only your settings and custom signs are saved, in this browser. Emotion, stress and sleep readings are estimates from facial movement, not medical or psychological assessments.
+</footer>
+
+<!-- ================================================================ settings drawer -->
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Settings">
+  <header><h2>⚙ Settings</h2><button class="ib" id="drawerClose" aria-label="Close settings">✕</button></header>
+  <div class="body">
+    <section>
+      <div class="h3">Display</div>
+      <div class="set">
+        <label>Theme <select class="btn" id="sTheme"><option value="system">Match my device</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+        <label>Text size <select class="btn" id="sText"><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option></select></label>
+        <label>High contrast <input type="checkbox" id="sContrast"></label>
+      </div>
+    </section>
+    <section>
+      <div class="h3">Camera view</div>
+      <div class="set">
+        <label>Mirror the picture <input type="checkbox" id="optMirror" checked></label>
+        <label>Draw face mesh <input type="checkbox" id="optMesh" checked></label>
+        <label>Draw hand skeleton <input type="checkbox" id="optHands" checked></label>
+        <label>Privacy view (hide video, keep outline) <input type="checkbox" id="optPrivacy"></label>
+        <label>Low-light boost <input type="checkbox" id="sLow"></label>
+      </div>
+    </section>
+    <section>
+      <div class="h3">Talking</div>
+      <div class="set">
+        <label>Hand signs type phrases <input type="checkbox" id="optTyping" checked></label>
+        <label>Eye &amp; head commands (nod, long blink…) <input type="checkbox" id="optEyeCmd" checked></label>
+        <label>Hold time to type a sign <input type="range" id="sHold" min="400" max="2500" step="100" value="900"><span id="sHoldV" class="pill">0.9 s</span></label>
+        <label>Custom-sign strictness <input type="range" id="sStrict" min="0.3" max="1.6" step="0.05" value="0.9"><span id="sStrictV" class="pill">0.90</span></label>
+        <label>Voice <select class="btn" id="sVoice" style="max-width:230px"></select></label>
+        <label>Speech rate <input type="range" id="sRate" min="0.6" max="1.4" step="0.05" value="0.95"><span id="sRateV" class="pill">0.95</span></label>
+      </div>
+    </section>
+    <section>
+      <div class="h3">Face</div>
+      <div class="set">
+        <label>Beard / face covering <select class="btn" id="sCover" style="max-width:230px">
+          <option value="auto">Auto-detect</option><option value="none">None (face fully visible)</option>
+          <option value="beard">Beard / moustache</option><option value="mask">Mask, niqab or scarf over mouth</option></select></label>
+        <label>Glasses <select class="btn" id="sGlasses" style="max-width:230px">
+          <option value="auto">Auto-detect</option><option value="yes">I wear glasses</option><option value="no">No glasses</option></select></label>
+      </div>
+    </section>
+    <section>
+      <div class="h3">Quick phrases <span class="grow"></span><button class="btn sm" id="quickReset">Restore defaults</button></div>
+      <p class="sub" style="margin-top:0">One phrase per line, optionally starting with an emoji. Start a line with <code>#</code> to make a group heading. Use words that fit the person and their language.</p>
+      <textarea class="field" id="sQuick" spellcheck="false" aria-label="Quick phrases"></textarea>
+    </section>
+    <section>
+      <div class="h3">What each sign or gesture says</div>
+      <p class="sub" style="margin-top:0">Leave a box empty to ignore that trigger. Special actions: <code>[speak]</code> speaks the sentence, <code>[undo]</code> removes the last word, <code>[clear]</code> clears it.</p>
+      <table class="map" id="mapTable"></table>
+      <div class="row" style="margin-top:10px"><button class="btn sm" id="mapReset">Restore defaults</button></div>
+    </section>
+  </div>
+</aside>
+
+<!-- ================================================================ show-to-others view -->
+<div class="partner" id="partner" hidden role="dialog" aria-label="Sentence shown full screen">
+  <div class="lbl">BHAAV · they are saying</div>
+  <div class="partner-text" id="partnerText"></div>
+  <div class="row" style="justify-content:center">
+    <button class="btn primary lg" id="partnerSpeak">🔊 Speak aloud</button>
+    <button class="btn lg" id="partnerClose">Close (Esc)</button>
+  </div>
+</div>
+
+<!-- ================================================================ first-run guide -->
+<div class="modal" id="onboard" hidden role="dialog" aria-modal="true" aria-labelledby="obTitle">
+  <div class="sheet">
+    <div class="steps"><i class="on"></i><i></i><i></i></div>
+    <div data-step="0">
+      <h2 id="obTitle">Welcome to BHAAV 👋</h2>
+      <p>BHAAV reads what a face and hands are showing (emotions, eye and head gestures, hand signs, tiredness) and can speak for someone who can't.</p>
+      <div class="tips">
+        <div><b>🔒</b>Private by design. Video is processed on this device and never uploaded or saved.</div>
+        <div><b>💬</b>Honest about limits. It reads expressions, not minds, and always shows <i>why</i> it thinks something.</div>
       </div>
     </div>
-  </section>
-</main>
-<footer>
-  BHAAV runs Google MediaPipe face and hand models in your browser (WebAssembly + GPU). Camera frames are never uploaded or stored. Only your settings and custom signs are saved, in this browser. Emotion and stress readings are estimates from facial movement and are not medical or psychological assessments.
-</footer>
+    <div data-step="1" hidden>
+      <h2>Set up for a good reading</h2>
+      <div class="tips">
+        <div><b>💡</b>Light in front of you, not behind you. A window behind you makes your face too dark.</div>
+        <div><b>📏</b>Sit about an arm's length away, with your face and upper chest in view.</div>
+        <div><b>😐</b>When the camera starts, hold a relaxed face for 2 seconds. That calibrates it to <i>your</i> face.</div>
+        <div><b>👓</b>Glasses, beards and masks are fine. BHAAV adapts, and you can set them in Settings.</div>
+      </div>
+    </div>
+    <div data-step="2" hidden>
+      <h2>What would you like to do?</h2>
+      <div class="pick">
+        <button data-pick="talk"><span>🗣</span><b>Talk</b><small>Hand signs, nods and blinks become spoken words. For people who can't speak.</small></button>
+        <button data-pick="read"><span>🧠</span><b>Read</b><small>Emotions and body language, with the reasons behind every reading.</small></button>
+        <button data-pick="rest"><span>😴</span><b>Rest</b><small>Sleepiness and energy, with a wake-up alarm for study or long drives.</small></button>
+      </div>
+      <p class="sub">You can switch at any time with the buttons at the top, or keys 1 · 2 · 3.</p>
+    </div>
+    <div class="row between" style="margin-top:14px">
+      <button class="btn" id="obSkip">Skip</button>
+      <div class="row"><button class="btn" id="obBack" hidden>Back</button><button class="btn primary" id="obNext">Next</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ help -->
+<div class="modal" id="help" hidden role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="sheet">
+    <div class="row between"><h2 id="helpTitle">Help &amp; shortcuts</h2><button class="ib" id="helpClose" aria-label="Close help">✕</button></div>
+    <table class="keys">
+      <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Talk · Read · Rest mode</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>Speak the sentence</td></tr>
+      <tr><td><kbd>Backspace</kbd></td><td>Remove the last word</td></tr>
+      <tr><td><kbd>P</kbd></td><td>Pause / resume typing (gestures are still read, but nothing is typed)</td></tr>
+      <tr><td><kbd>V</kbd></td><td>Privacy view: hide the video, keep the face and hand outline</td></tr>
+      <tr><td><kbd>F</kbd></td><td>Show the sentence full screen to others</td></tr>
+      <tr><td><kbd>K</kbd></td><td>Calibrate your neutral face</td></tr>
+      <tr><td><kbd>?</kbd> · <kbd>Esc</kbd></td><td>Open this help · close any panel</td></tr>
+    </table>
+    <h3 class="h3" style="margin-top:18px">Getting the best reading</h3>
+    <p>Watch the <b>Signal</b> bars at the top. When something is wrong, a tip appears on the camera view (too dark, too far, turned away). Hold signs still for about a second; the bar under the sentence fills as it gets ready to type. Press <b>⏸</b> whenever you want to move freely without typing anything.</p>
+    <button class="btn" id="helpTour">Show the welcome guide again</button>
+  </div>
+</div>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>
